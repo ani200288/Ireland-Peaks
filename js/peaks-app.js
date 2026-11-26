@@ -1169,18 +1169,26 @@ function renderMapMarkers(zoomToBounds) {
       return;
     }
 
-    const marker = L.circleMarker(
-      [peak.lat, peak.lon],
-      {
-        radius: isClimbed ? 8 : 6,
-        fillColor: isClimbed ? '#10B981' : '#64748B',
-        color: '#FFFFFF',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 0.9
-      }
-    );
+    const markerIcon = L.divIcon({
+  className: 'peak-marker-icon',
+  html: `
+    <span class="peak-marker ${isClimbed ? 'peak-marker--climbed' : 'peak-marker--unclimbed'}">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M3 19 9.5 8l3.2 5 2-3L21 19H3Z"></path>
+        <path d="m7.7 11 1.8 2.8 1.5-2.2"></path>
+      </svg>
+    </span>
+  `,
+  iconSize: [38, 38],
+  iconAnchor: [19, 19],
+  popupAnchor: [0, -19]
+});
 
+const marker = L.marker([peak.lat, peak.lon], {
+  icon: markerIcon,
+  title: `${peak.name} (${peak.height}m)`,
+  alt: `${peak.name}, ${peak.height} metres${isClimbed ? ', climbed' : ', not climbed'}`
+});
     const popup = document.createElement('div');
     popup.style.minWidth = '170px';
 
