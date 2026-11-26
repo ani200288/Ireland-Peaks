@@ -1,10 +1,11 @@
 /* ==========================================================================
-   PeakLog Ireland - 409 Arderins Tracker (Refined Card UI + Open-Meteo)
+   PeakLog Ireland - 409 Arderins Tracker (Full Trophy System + Open-Meteo)
    ========================================================================== */
 
 let allPeaks = [];
 let climbedNames = JSON.parse(localStorage.getItem('irelandClimbedNames')) || [];
 let currentPage = 1;
+let trophyFilter = 'all';
 const PEAKS_PER_PAGE = 24;
 
 const regionMap = {
@@ -72,6 +73,7 @@ async function loadArderinsCSV() {
     const regionIdx = headers.indexOf('region');
     const dropIdx = headers.indexOf('drop');
     const featureIdx = headers.indexOf('feature');
+    const classIdx = headers.indexOf('classification');
     const latIdx = headers.indexOf('latitude');
     const lonIdx = headers.indexOf('longitude');
 
@@ -79,8 +81,11 @@ async function loadArderinsCSV() {
       const cols = splitCSVRow(line);
       const rawRegion = (cols[regionIdx] || '').trim();
       const height = Math.round(parseFloat(cols[heightIdx]) || 500);
+      const exactHeight = parseFloat(cols[heightIdx]) || 500;
       const drop = Math.round(parseFloat(cols[dropIdx]) || 30);
       const feature = (cols[featureIdx] || '').trim();
+      const classification = (cols[classIdx] || '').trim();
+      const isCountyHighPoint = classification.split(',').map(c => c.trim()).includes('CoH');
 
       const difficulty = height >= 850 ? 'Hard' : (height >= 650 ? 'Moderate–Hard' : 'Moderate');
       const note = feature && feature !== 'not recorded' && feature !== 'no feature'
@@ -91,6 +96,8 @@ async function loadArderinsCSV() {
         id: idx + 1,
         name: cols[nameIdx] || `Summit ${idx + 1}`,
         height,
+        exactHeight,
+        isCountyHighPoint,
         difficulty,
         note,
         county: regionMap[rawRegion] || rawRegion || 'Ireland',
@@ -168,7 +175,10 @@ function renderDashboard() {
               <span class="peak-elevation">${peak.height}m</span>
             </div>
             <h3 class="h4 fw-bold mb-1">${peak.name}</h3>
-            <p class="small text-muted fw-semibold mb-2">Arderin List &bull; ${peak.difficulty}</p>
+            <p class="small text-muted fw-semibold mb-2">
+              Arderin List &bull; ${peak.difficulty}
+              ${peak.isCountyHighPoint ? ' &bull; <span class="text-success">County High Point</span>' : ''}
+            </p>
             <p class="small text-secondary mb-2">${peak.note}</p>
           </div>
 
@@ -212,33 +222,93 @@ function toggleClimbed(peakName) {
   renderDashboard();
 }
 
+function setTrophyFilter(filter) {
+  trophyFilter = filter;
+  updateCounterAndTrophies();
+}
+
 function updateCounterAndTrophies() {
   document.getElementById('climbedCounter').textContent = `${climbedNames.length} / ${allPeaks.length} Arderins Climbed`;
 
   const has = name => climbedNames.some(c => c.toLowerCase().includes(name.toLowerCase()));
+  const count = climbedNames.length;
+
+  // Sort peaks by exact height for Top 10 / Top 20 Ireland checks
+  const sortedByHeight = [...allPeaks].sort((a, b) => b.exactHeight - a.exactHeight);
+  const top10Names = sortedByHeight.slice(0, 10).map(p => p.name);
+  const top20Names = sortedByHeight.slice(0, 20).map(p => p.name);
+  const countyHighPoints = allPeaks.filter(p => p.isCountyHighPoint);
+  const climbedCoHCount = countyHighPoints.filter(p => climbedNames.includes(p.name)).length;
+
   const trophies = [
-    { icon: '🥾', title: 'First Summit', desc: 'Log your first 500m+ Irish mountain.', unlocked: climbedNames.length >= 1 },
-    { icon: '👑', title: 'King of Ireland', desc: "Summit Carrauntoohil (1,039m), Ireland's highest peak.", unlocked: has('Carrauntoohil') },
-    { icon: '🏆', title: 'Four Provincial Peaks', desc: 'Conquer Carrauntoohil, Lugnaquilla, Slieve Donard & Mweelrea.', unlocked: has('Carrauntoohil') && has('Lugnaquillia') && has('Slieve Donard') && has('Mweelrea') },
-    { icon: '🌲', title: 'Wicklow Wanderer', desc: 'Climb Lugnaquilla, Tonelagee & Djouce in the Garden County.', unlocked: has('Lugnaquillia') && has('Tonelagee') && has('Djouce') },
-    { icon: '⛰️', title: '5 Arderins Club', desc: 'Reach 5 summits on the 500m+ Arderins list.', unlocked: climbedNames.length >= 5 }
+    // Core & Provincial Challenges
+    { icon: '🥾', title: 'First Summit', desc: 'Log your first 500m+ Irish mountain.', unlocked: count >= 1 },
+    { icon: '👑', title: 'King of Ireland', desc: 'Summit Carrauntoohil (1,039m), Ireland’s highest peak.', unlocked: has('Carrauntoohil') },
+    { icon: '🏔️', title: 'The 1,000m Club', desc: 'Climb all 3 Irish 1,000m+ peaks: Carrauntoohil, Beenkeragh & Caher.', unlocked: has('Carrauntoohil') && has('Beenkeragh') && has('Caher') },
+    { icon: '🏆', title: 'Four Provincial Peaks', desc: 'Conquer Carrauntoohil, Lugnaquillia, Slieve Donard & Mweelrea.', unlocked: has('Carrauntoohil') && has('Lugnaquillia') && has('Slieve Donard') && has('Mweelrea') },
+
+    // Height Rankings
+    { icon: '🔟', title: 'Top 10 in Ireland', desc: 'Summit all 10 highest peaks in Ireland (931m+).', unlocked: top10Names.length === 10 && top10Names.every(n => climbedNames.includes(n)) },
+    { icon: '🥇', title: 'Top 20 in Ireland', desc: 'Summit all 20 highest peaks in Ireland (834m+).', unlocked: top20Names.length === 20 && top20Names.every(n => climbedNames.includes(n)) },
+
+    // County & Province High Points
+    { icon: '📍', title: 'First County High Point', desc: 'Summit the highest peak of any Irish county.', unlocked: climbedCoHCount >= 1 },
+    { icon: '🟢', title: 'Leinster County Tops', desc: 'Lugnaquillia, Mount Leinster, Kippure, Arderin & Croghan Mtn.', unlocked: has('Lugnaquillia') && has('Mount Leinster') && has('Kippure') && has('Arderin') && has('Croghan Mountain') },
+    { icon: '🔵', title: 'Munster County Tops', desc: 'Carrauntoohil, Galtymore, Knockboy, Knockmealdown & Moylussa.', unlocked: has('Carrauntoohil') && has('Galtymore') && has('Knockboy') && has('Knockmealdown') && has('Moylussa') },
+    { icon: '🟡', title: 'Connacht County Tops', desc: 'Mweelrea, Benbaun, Truskmore & Slieve Anierin.', unlocked: has('Mweelrea') && has('Benbaun') && has('Truskmore') && has('Slieve Anierin') },
+    { icon: '🔴', title: 'Ulster County Tops', desc: 'Slieve Donard, Errigal, Sawel, Cuilcagh, Trostan & Slieve Gullion.', unlocked: has('Slieve Donard') && has('Errigal') && has('Sawel') && has('Cuilcagh') && has('Trostan') && has('Slieve Gullion') },
+    { icon: '🇮🇪', title: 'All-Ireland County Tops', desc: 'Conquer every 500m+ County High Point in Ireland.', unlocked: countyHighPoints.length > 0 && climbedCoHCount === countyHighPoints.length },
+
+    // Regional & Classic Irish Challenges
+    { icon: '🏙️', title: 'Dublin Mountains Duo', desc: 'Climb Kippure & Two Rock Mountain (Fairy Castle).', unlocked: has('Kippure') && has('Two Rock') },
+    { icon: '🌲', title: 'Wicklow Wanderer', desc: 'Climb Lugnaquillia, Tonelagee & Djouce in the Garden County.', unlocked: has('Lugnaquillia') && has('Tonelagee') && has('Djouce') },
+    { icon: '🧱', title: 'Mourne Wall Challenge', desc: 'Summit Donard, Commedagh, Bearnagh, Meelmore, Meelbeg, Binnian & Muck.', unlocked: has('Slieve Donard') && has('Slieve Commedagh') && has('Slieve Bearnagh') && has('Slieve Meelmore') && has('Slieve Meelbeg') && has('Slieve Binnian') && has('Slieve Muck') },
+    { icon: '⛪', title: 'Holy Mountain Pilgrim', desc: 'Reach the chapel summit of Croagh Patrick (764m).', unlocked: has('Croagh Patrick') },
+
+    // Step-by-Step Summit Milestones (5 to 409)
+    { icon: '⛰️', title: '5 Arderins Club', desc: 'Reach 5 summits on the 500m+ Arderins list.', unlocked: count >= 5 },
+    { icon: '🔟', title: '10 Peaks Explorer', desc: 'Log 10 Irish mountains.', unlocked: count >= 10 },
+    { icon: '🥾', title: '20 Peaks Trailblazer', desc: 'Log 20 Irish mountains.', unlocked: count >= 20 },
+    { icon: '🧭', title: '30 Peaks Navigator', desc: 'Log 30 Irish mountains.', unlocked: count >= 30 },
+    { icon: '⭐', title: '50 Peaks Half-Century', desc: 'Log 50 Irish mountains.', unlocked: count >= 50 },
+    { icon: '💯', title: '100 Peaks Centurion', desc: 'Log 100 Irish mountains.', unlocked: count >= 100 },
+    { icon: '🌗', title: '205 Halfway Hero', desc: 'Pass the halfway mark of the Arderins list.', unlocked: count >= 205 },
+    { icon: '🔥', title: '300 Peaks Legend', desc: 'Log 300 Irish mountains.', unlocked: count >= 300 },
+    { icon: '🏅', title: '409 Arderins Complete', desc: 'Climb every single 500m+ peak in Ireland!', unlocked: allPeaks.length > 0 && count >= allPeaks.length }
   ];
 
+  const unlockedCount = trophies.filter(t => t.unlocked).length;
+  const visibleTrophies = trophies.filter(t => {
+    if (trophyFilter === 'unlocked') return t.unlocked;
+    if (trophyFilter === 'locked') return !t.unlocked;
+    return true;
+  });
+
   const cabinet = document.getElementById('trophyCabinet');
-  cabinet.innerHTML = trophies.map(t => `
-    <div class="col-12 col-sm-6 col-lg">
-      <div class="trophy-card ${t.unlocked ? 'unlocked' : 'locked'}">
-        <div>
-          <div class="trophy-icon">${t.icon}</div>
-          <h3 class="h6 fw-bold mb-1">${t.title}</h3>
-          <p class="small text-muted mb-3">${t.desc}</p>
-        </div>
-        <div>
-          <span class="${t.unlocked ? 'badge-unlocked' : 'badge-locked'}">${t.unlocked ? 'Unlocked' : 'Locked'}</span>
-        </div>
+  cabinet.innerHTML = `
+    <div class="col-12 d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+      <span class="small fw-bold text-success">${unlockedCount} of ${trophies.length} Trophies Unlocked</span>
+      <div class="btn-group btn-group-sm" role="group">
+        <button type="button" class="btn ${trophyFilter === 'all' ? 'btn-alpine' : 'btn-outline-secondary'}" onclick="setTrophyFilter('all')">All (${trophies.length})</button>
+        <button type="button" class="btn ${trophyFilter === 'unlocked' ? 'btn-alpine' : 'btn-outline-secondary'}" onclick="setTrophyFilter('unlocked')">Unlocked (${unlockedCount})</button>
+        <button type="button" class="btn ${trophyFilter === 'locked' ? 'btn-alpine' : 'btn-outline-secondary'}" onclick="setTrophyFilter('locked')">Locked (${trophies.length - unlockedCount})</button>
       </div>
     </div>
-  `).join('');
+    ${visibleTrophies.map(t => `
+      <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+        <div class="trophy-card ${t.unlocked ? 'unlocked' : 'locked'}">
+          <div>
+            <div class="trophy-icon">${t.icon}</div>
+            <h3 class="h6 fw-bold mb-1">${t.title}</h3>
+            <p class="small text-muted mb-3">${t.desc}</p>
+          </div>
+          <div>
+            <span class="${t.unlocked ? 'badge-unlocked' : 'badge-locked'}">${t.unlocked ? 'Unlocked' : 'Locked'}</span>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  `;
 }
 
 async function fetchSummitWeather(id, lat, lon) {
