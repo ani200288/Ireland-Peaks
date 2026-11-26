@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Achievements &amp; Trophies | PeakLog Ireland</title>
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Top Alpine Navigation Bar -->
+  <nav class="navbar navbar-expand-lg navbar-dark navbar-alpine sticky-top shadow-sm">
+    <div class="container py-1">
+      <a class="navbar-brand fw-bold fs-4" href="index.html">PeakLog Ireland</a>
+
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav" aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="mainNav">
+        <ul class="navbar-nav me-auto ms-lg-4 mb-2 mb-lg-0 gap-1">
+          <li class="nav-item">
+            <a class="nav-link fw-semibold px-3 rounded" href="index.html">⛰️ Home &amp; Peaks</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link active fw-semibold px-3 rounded" aria-current="page" href="achievements.html">🏆 Achievements</a>
+          </li>
+        </ul>
+
+        <span id="climbedCounter" class="badge bg-warning text-dark fs-6 px-3 py-2 rounded-pill">0 / 409 Arderins Climbed</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="py-4">
+    <div class="container">
+
+      <!-- Achievements Hero Banner -->
+      <div class="hero-alpine p-4 p-md-5 mb-4">
+        <span class="badge bg-warning text-dark mb-2">25 Irish Mountaineering Challenges</span>
+        <h1 class="h2 fw-bold mb-2">Summit Trophy Cabinet</h1>
+        <p class="small mb-0 opacity-75">
+          Track your progress across Ireland's County High Points, Provincial Champions, Top 10 &amp; Top 20 peaks, and milestone climbs all the way to 409.
+        </p>
+      </div>
+
+      <!-- Trophy Cabinet Grid -->
+      <div class="bg-white p-4 rounded-3 shadow-sm">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+          <div>
+            <h2 class="h4 fw-bold mb-0">Your Trophies</h2>
+            <span class="small text-muted">Mark peaks as climbed on the Home page to unlock badges automatically</span>
+          </div>
+          <a href="index.html" class="btn btn-alpine btn-sm">+ Log More Peaks</a>
+        </div>
+
+        <div class="row g-3" id="trophyCabinet"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="js/bootstrap.bundle.min.js"></script>
+  <script src="js/peaks-app.js"></script>
+</body>
+</html>
