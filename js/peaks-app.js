@@ -164,46 +164,55 @@ function renderDashboard() {
   const pagePeaks = filtered.slice(start, start + PEAKS_PER_PAGE);
 
   const container = document.getElementById('peaksGrid');
-  container.innerHTML = pagePeaks.map(peak => {
-    const isClimbed = climbedNames.includes(peak.name);
-    return `
-      <div class="col-12 col-md-6 col-lg-4">
-        <div class="peak-card ${isClimbed ? 'is-climbed' : ''}">
-          <div>
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <span class="pill-region">${peak.county}</span>
-              <span class="peak-elevation">${peak.height}m</span>
-            </div>
-            <h3 class="h4 fw-bold mb-1">${peak.name}</h3>
-            <p class="small text-muted fw-semibold mb-2">
-              Arderin List &bull; ${peak.difficulty}
-              ${peak.isCountyHighPoint ? ' &bull; <span class="text-success">County High Point</span>' : ''}
-            </p>
-            <p class="small text-secondary mb-2">${peak.note}</p>
-          </div>
-
-          <div>
-            <div id="weather-${peak.id}" class="weather-strip d-flex justify-content-between align-items-center">
-              <span class="text-muted">Click forecast for live summit weather</span>
-            </div>
-
-            <div class="row g-2">
-              <div class="col-6">
-                <button type="button" class="btn btn-mark-climbed w-100 ${isClimbed ? 'climbed-active' : ''}" onclick="toggleClimbed('${peak.name.replace(/'/g, "\\'")}')">
-                  ${isClimbed ? '✓ Climbed' : 'Mark Climbed'}
-                </button>
+  if (container) {
+    container.innerHTML = pagePeaks.map(peak => {
+      const isClimbed = climbedNames.includes(peak.name);
+      return `
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="peak-card ${isClimbed ? 'is-climbed' : ''}">
+            <div>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="pill-region">${peak.county}</span>
+                <span class="peak-elevation">${peak.height}m</span>
               </div>
-              <div class="col-6">
-                <button type="button" class="btn btn-alpine w-100" onclick="fetchSummitWeather(${peak.id}, ${peak.lat}, ${peak.lon})">
-                  7-Day Forecast
-                </button>
+              <h3 class="h4 fw-bold mb-1">${peak.name}</h3>
+              <p class="small text-muted fw-semibold mb-2">Arderin List &bull; ${peak.difficulty}</p>
+              <p class="small text-secondary mb-2">${peak.note}</p>
+            </div>
+
+            <div>
+              <div id="weather-${peak.id}" class="weather-strip d-flex justify-content-between align-items-center">
+                <span class="text-muted">Click forecast for live summit weather</span>
+              </div>
+
+              <div class="row g-2">
+                <div class="col-6">
+                  <button type="button" class="btn btn-mark-climbed w-100 ${isClimbed ? 'climbed-active' : ''}" onclick="toggleClimbed('${peak.name.replace(/'/g, "\\'")}')">
+                    ${isClimbed ? '✓ Climbed' : 'Mark Climbed'}
+                  </button>
+                </div>
+                <div class="col-6">
+                  <button type="button" class="btn btn-alpine w-100" onclick="fetchSummitWeather(${peak.id}, ${peak.lat}, ${peak.lon})">
+                    7-Day Forecast
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+
+    const pageInd = document.getElementById('pageIndicator');
+    const prevBtn = document.getElementById('prevPageBtn');
+    const nextBtn = document.getElementById('nextPageBtn');
+    if (pageInd) pageInd.textContent = `Page ${currentPage} of ${totalPages} (${filtered.length} peaks)`;
+    if (prevBtn) prevBtn.disabled = currentPage === 1;
+    if (nextBtn) nextBtn.disabled = currentPage === totalPages;
+  }
+
+  updateCounterAndTrophies();
+
 
   document.getElementById('pageIndicator').textContent = `Page ${currentPage} of ${totalPages} (${filtered.length} peaks)`;
   document.getElementById('prevPageBtn').disabled = currentPage === 1;
