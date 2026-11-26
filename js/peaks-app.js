@@ -1,496 +1,1254 @@
 /* ==========================================================================
-   PeakLog Ireland - 409 Arderins Tracker (Full Trophy System + Open-Meteo)
+   PeakLog Ireland
+   409 Arderins tracker, weather forecasts, trophies and Leaflet map
    ========================================================================== */
 
+'use strict';
+
+const PEAKS_PER_PAGE = 24;
+const WEATHER_CACHE = new Map();
+const WEATHER_MAX_FORECAST_DAYS = 7;
+
 let allPeaks = [];
-let climbedNames = JSON.parse(localStorage.getItem('irelandClimbedNames')) || [];
+let climbedNames = loadClimbedNames();
 let currentPage = 1;
 let trophyFilter = 'all';
-const PEAKS_PER_PAGE = 24;
+let leafletMap = null;
+let markersLayer = null;
 
 const regionMap = {
-  "43A": "Armagh & South Down",
-  "43B": "Ulster • Mourne Mountains",
-  "43C": "Ulster • Antrim Hills",
-  "44B": "Ulster • Sperrin Mountains",
-  "45A": "Ulster • Inishowen",
-  "45B": "Ulster • North Donegal",
-  "45C": "Ulster • Bluestack Mountains",
-  "45D": "Connacht/Ulster • Dartry & Cuilcagh",
-  "45E": "Connacht • Ox Mountains",
-  "46B": "Connacht • Nephin Beg Range",
-  "46C": "Connacht • Achill & Corraun",
-  "47A": "Connacht • Mweelrea & Croagh Patrick",
-  "47B": "Connacht • Twelve Bens",
-  "47C": "Connacht • Maumturks & Partry",
-  "48A": "Munster • Clare Hills",
-  "48C": "Munster • Derrynasaggart",
-  "49A": "Munster • Brandon Group",
-  "49B": "Munster • Slieve Mish",
-  "50A": "Munster • Iveragh West",
-  "50B": "Munster • Dunkerron Mountains",
-  "50C": "Munster • MacGillycuddy's Reeks",
-  "51A": "Munster • Caha & Beara",
-  "52A": "Munster • Mangerton & Shehy",
-  "52B": "Munster • West Cork Hills",
-  "53A": "Munster • Galtee Mountains",
-  "53B": "Munster • Silvermines & Keeper",
-  "54A": "Munster • Comeragh & Knockmealdown",
-  "54B": "Leinster • Blackstairs & Slievenamon",
-  "55A": "Leinster • South Wicklow",
-  "55B": "Leinster • North Wicklow & Dublin",
-  "56A": "Leinster • Cooley Mountains",
-  "56B": "Leinster • Slieve Bloom Mountains"
+  '43A': 'Armagh & South Down',
+  '43B': 'Ulster • Mourne Mountains',
+  '43C': 'Ulster • Antrim Hills',
+  '44B': 'Ulster • Sperrin Mountains',
+  '45A': 'Ulster • Inishowen',
+  '45B': 'Ulster • North Donegal',
+  '45C': 'Ulster • Bluestack Mountains',
+  '45D': 'Connacht/Ulster • Dartry & Cuilcagh',
+  '45E': 'Connacht • Ox Mountains',
+  '46B': 'Connacht • Nephin Beg Range',
+  '46C': 'Connacht • Achill & Corraun',
+  '47A': 'Connacht • Mweelrea & Croagh Patrick',
+  '47B': 'Connacht • Twelve Bens',
+  '47C': 'Connacht • Maumturks & Partry',
+  '48A': 'Munster • Clare Hills',
+  '48C': 'Munster • Derrynasaggart',
+  '49A': 'Munster • Brandon Group',
+  '49B': 'Munster • Slieve Mish',
+  '50A': 'Munster • Iveragh West',
+  '50B': 'Munster • Dunkerron Mountains',
+  '50C': 'Munster • MacGillycuddy\'s Reeks',
+  '51A': 'Munster • Caha & Beara',
+  '52A': 'Munster • Mangerton & Shehy',
+  '52B': 'Munster • West Cork Hills',
+  '53A': 'Munster • Galtee Mountains',
+  '53B': 'Munster • Silvermines & Keeper',
+  '54A': 'Munster • Comeragh & Knockmealdown',
+  '54B': 'Leinster • Blackstairs & Slievenamon',
+  '55A': 'Leinster • South Wicklow',
+  '55B': 'Leinster • North Wicklow & Dublin',
+  '56A': 'Leinster • Cooley Mountains',
+  '56B': 'Leinster • Slieve Bloom Mountains'
 };
 
-document.addEventListener('DOMContentLoaded', async function () {
+const peaksReady = loadArderinsCSV();
+
+/* ==========================================================================
+   Initialization
+   ========================================================================== */
+
+document.addEventListener('DOMContentLoaded', async () => {
   setDefaultDate();
-  await loadArderinsCSV();
+
+  try {
+    await peaksReady;
+  } catch (error) {
+    console.error(error);
+
+    const grid = document.getElementById('peaksGrid');
+    if (grid) {
+      grid.textContent =
+        'Could not load the peak data. Please refresh the page.';
+    }
+
+    return;
+  }
+
   populateCountyDropdowns();
   setupControls();
   renderDashboard();
+
+  if (document.getElementById('irelandMap')) {
+    initIrelandMap();
+  }
 });
 
-function setDefaultDate() {
-  const dateInput = document.getElementById('freeDateInput');
-  if (dateInput) {
-    const today = new Date().toISOString().split('T')[0];
-    dateInput.value = today;
-    dateInput.min = today;
+/* ==========================================================================
+   State and storage
+   ========================================================================== */
+
+function loadClimbedNames() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem('irelandClimbedNames') || '[]'
+    );
+
+    return new Set(Array.isArray(saved) ? saved : []);
+  } catch (error) {
+    console.warn('Could not read saved climbed peaks.', error);
+    return new Set();
   }
 }
 
+function saveClimbedNames() {
+  localStorage.setItem(
+    'irelandClimbedNames',
+    JSON.stringify([...climbedNames])
+  );
+}
+
+function setDefaultDate() {
+  const dateInput = document.getElementById('freeDateInput');
+  if (!dateInput) return;
+
+  const today = new Date();
+  const latest = new Date(today);
+  latest.setDate(latest.getDate() + WEATHER_MAX_FORECAST_DAYS);
+
+  dateInput.value = formatLocalDate(today);
+  dateInput.min = formatLocalDate(today);
+  dateInput.max = formatLocalDate(latest);
+}
+
+function formatLocalDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/* ==========================================================================
+   Peak data
+   ========================================================================== */
+
 async function loadArderinsCSV() {
-  try {
-    const response = await fetch('arderins.csv');
-    if (!response.ok) throw new Error('Could not load arderins.csv');
-    const text = await response.text();
-    const lines = text.trim().split(/\r?\n/);
+  const response = await fetch('arderins.csv');
 
-    const headers = splitCSVRow(lines[0]).map(h => h.toLowerCase().trim());
-    const nameIdx = headers.indexOf('hillname');
-    const heightIdx = headers.indexOf('metres');
-    const regionIdx = headers.indexOf('region');
-    const dropIdx = headers.indexOf('drop');
-    const featureIdx = headers.indexOf('feature');
-    const classIdx = headers.indexOf('classification');
-    const latIdx = headers.indexOf('latitude');
-    const lonIdx = headers.indexOf('longitude');
-
-    allPeaks = lines.slice(1).map((line, idx) => {
-      const cols = splitCSVRow(line);
-      const rawRegion = (cols[regionIdx] || '').trim();
-      const height = Math.round(parseFloat(cols[heightIdx]) || 500);
-      const exactHeight = parseFloat(cols[heightIdx]) || 500;
-      const drop = Math.round(parseFloat(cols[dropIdx]) || 30);
-      const feature = (cols[featureIdx] || '').trim();
-      const classification = (cols[classIdx] || '').trim();
-      const isCountyHighPoint = classification.split(',').map(c => c.trim()).includes('CoH');
-
-      const difficulty = height >= 850 ? 'Hard' : (height >= 650 ? 'Moderate–Hard' : 'Moderate');
-      const note = feature && feature !== 'not recorded' && feature !== 'no feature'
-        ? `Prominence ${drop}m • Summit marker: ${feature}.`
-        : `Prominence ${drop}m • 500m+ Official Arderin summit.`;
-
-      return {
-        id: idx + 1,
-        name: cols[nameIdx] || `Summit ${idx + 1}`,
-        height,
-        exactHeight,
-        isCountyHighPoint,
-        difficulty,
-        note,
-        county: regionMap[rawRegion] || rawRegion || 'Ireland',
-        lat: parseFloat(cols[latIdx]),
-        lon: parseFloat(cols[lonIdx])
-      };
-    }).filter(p => !isNaN(p.lat) && !isNaN(p.lon));
-  } catch (err) {
-    console.error(err);
+  if (!response.ok) {
+    throw new Error(`Could not load arderins.csv (${response.status})`);
   }
+
+  const text = await response.text();
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+
+  if (lines.length < 2) {
+    throw new Error('arderins.csv contains no peak records');
+  }
+
+  const headers = splitCSVRow(lines[0])
+    .map(header => header.toLowerCase().trim());
+
+  const index = {
+    name: headers.indexOf('hillname'),
+    height: headers.indexOf('metres'),
+    region: headers.indexOf('region'),
+    drop: headers.indexOf('drop'),
+    feature: headers.indexOf('feature'),
+    class: headers.indexOf('classification'),
+    lat: headers.indexOf('latitude'),
+    lon: headers.indexOf('longitude')
+  };
+
+  allPeaks = lines.slice(1).map((line, indexValue) => {
+    const columns = splitCSVRow(line);
+
+    const rawRegion = (columns[index.region] || '').trim();
+    const height = Math.round(parseFloat(columns[index.height]) || 500);
+    const exactHeight = parseFloat(columns[index.height]) || 500;
+    const drop = Math.round(parseFloat(columns[index.drop]) || 30);
+    const feature = (columns[index.feature] || '').trim();
+    const classification = (columns[index.class] || '').trim();
+
+    const isCountyHighPoint = classification
+      .split(',')
+      .map(value => value.trim())
+      .includes('CoH');
+
+    let difficulty = 'Moderate';
+
+    if (height >= 850) {
+      difficulty = 'Hard';
+    } else if (height >= 650) {
+      difficulty = 'Moderate–Hard';
+    }
+
+    const hasFeature =
+      feature &&
+      feature !== 'not recorded' &&
+      feature !== 'no feature';
+
+    const note = hasFeature
+      ? `Prominence ${drop}m • Summit marker: ${feature}.`
+      : `Prominence ${drop}m • 500m+ Official Arderin summit.`;
+
+    const lat = parseFloat(columns[index.lat]);
+    const lon = parseFloat(columns[index.lon]);
+
+    return {
+      id: indexValue + 1,
+      name: (columns[index.name] || `Summit ${indexValue + 1}`).trim(),
+      height,
+      exactHeight,
+      isCountyHighPoint,
+      difficulty,
+      note,
+      county: regionMap[rawRegion] || rawRegion || 'Ireland',
+      lat,
+      lon
+    };
+  }).filter(peak =>
+    Number.isFinite(peak.lat) &&
+    Number.isFinite(peak.lon)
+  );
 }
 
 function splitCSVRow(row) {
   const result = [];
   let current = '';
   let inQuotes = false;
-  for (let i = 0; i < row.length; i++) {
-    const ch = row[i];
-    if (ch === '"') {
+
+  for (let index = 0; index < row.length; index += 1) {
+    const character = row[index];
+
+    if (character === '"') {
       inQuotes = !inQuotes;
-    } else if (ch === ',' && !inQuotes) {
+    } else if (character === ',' && !inQuotes) {
       result.push(current.trim());
       current = '';
     } else {
-      current += ch;
+      current += character;
     }
   }
+
   result.push(current.trim());
   return result;
 }
 
 function populateCountyDropdowns() {
-  const ranges = [...new Set(allPeaks.map(p => p.county))].sort();
-  ['countyFilter', 'recommenderCounty'].forEach(selectId => {
-    const select = document.getElementById(selectId);
+  const ranges = [...new Set(allPeaks.map(peak => peak.county))].sort();
+
+  ['countyFilter', 'recommenderCounty', 'mapRangeFilter'].forEach(id => {
+    const select = document.getElementById(id);
     if (!select) return;
-    ranges.forEach(r => {
-      const opt = document.createElement('option');
-      opt.value = r;
-      opt.textContent = r;
-      select.appendChild(opt);
+
+    ranges.forEach(range => {
+      const option = document.createElement('option');
+      option.value = range;
+      option.textContent = range;
+      select.appendChild(option);
     });
   });
 }
 
-function renderDashboard() {
-  const searchTerm = (document.getElementById('peakSearch')?.value || '').toLowerCase();
-  const countyFilter = document.getElementById('countyFilter')?.value || 'all';
-  const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+/* ==========================================================================
+   Dashboard
+   ========================================================================== */
 
-  const filtered = allPeaks.filter(peak => {
-    const matchesSearch = peak.name.toLowerCase().includes(searchTerm) || peak.county.toLowerCase().includes(searchTerm);
-    const matchesCounty = countyFilter === 'all' || peak.county === countyFilter;
-    const isClimbed = climbedNames.includes(peak.name);
-    if (statusFilter === 'climbed') return matchesSearch && matchesCounty && isClimbed;
-    if (statusFilter === 'unclimbed') return matchesSearch && matchesCounty && !isClimbed;
+function renderDashboard() {
+  const searchTerm = (
+    document.getElementById('peakSearch')?.value || ''
+  ).trim().toLowerCase();
+
+  const countyFilter =
+    document.getElementById('countyFilter')?.value || 'all';
+
+  const statusFilter =
+    document.getElementById('statusFilter')?.value || 'all';
+
+  const filteredPeaks = allPeaks.filter(peak => {
+    const matchesSearch =
+      peak.name.toLowerCase().includes(searchTerm) ||
+      peak.county.toLoweredCase?.() === undefined
+        ? peak.county.toLowerCase().includes(searchTerm)
+        : false;
+
+    const matchesCounty =
+      countyFilter === 'all' || peak.county === countyFilter;
+
+    const isClimbed = climbedNames.has(peak.name);
+
+    if (statusFilter === 'climbed') {
+      return matchesSearch && matchesCounty && isClimbed;
+    }
+
+    if (statusFilter === 'unclimbed') {
+      return matchesSearch && matchesCounty && !isClimbed;
+    }
+
     return matchesSearch && matchesCounty;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PEAKS_PER_PAGE));
-  if (currentPage > totalPages) currentPage = totalPages;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredPeaks.length / PEAKS_PER_PAGE)
+  );
+
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
+  }
 
   const start = (currentPage - 1) * PEAKS_PER_PAGE;
-  const pagePeaks = filtered.slice(start, start + PEAKS_PER_PAGE);
+  const pagePeaks = filteredPeaks.slice(start, start + PEAKS_PER_PAGE);
 
-  const container = document.getElementById('peaksGrid');
-  if (container) {
-    container.innerHTML = pagePeaks.map(peak => {
-      const isClimbed = climbedNames.includes(peak.name);
-      return `
-        <div class="col-12 col-md-6 col-lg-4">
-          <div class="peak-card ${isClimbed ? 'is-climbed' : ''}">
-            <div>
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <span class="pill-region">${peak.county}</span>
-                <span class="peak-elevation">${peak.height}m</span>
-              </div>
-              <h3 class="h4 fw-bold mb-1">${peak.name}</h3>
-              <p class="small text-muted fw-semibold mb-2">Arderin List &bull; ${peak.difficulty}</p>
-              <p class="small text-secondary mb-2">${peak.note}</p>
-            </div>
+  renderPeakCards(pagePeaks);
 
-            <div>
-              <div id="weather-${peak.id}" class="weather-strip d-flex justify-content-between align-items-center">
-                <span class="text-muted">Click forecast for live summit weather</span>
-              </div>
+  const pageIndicator = document.getElementById('pageIndicator');
+  const previousButton = document.getElementById('prevPageBtn');
+  const nextButton = document.getElementById('nextPageBtn');
 
-              <div class="row g-2">
-                <div class="col-6">
-                  <button type="button" class="btn btn-mark-climbed w-100 ${isClimbed ? 'climbed-active' : ''}" onclick="toggleClimbed('${peak.name.replace(/'/g, "\\'")}')">
-                    ${isClimbed ? '✓ Climbed' : 'Mark Climbed'}
-                  </button>
-                </div>
-                <div class="col-6">
-                  <button type="button" class="btn btn-alpine w-100" onclick="fetchSummitWeather(${peak.id}, ${peak.lat}, ${peak.lon})">
-                    7-Day Forecast
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
+  if (pageIndicator) {
+    pageIndicator.textContent =
+      `Page ${currentPage} of ${totalPages} (${filteredPeaks.length} peaks)`;
+  }
 
-    const pageInd = document.getElementById('pageIndicator');
-    const prevBtn = document.getElementById('prevPageBtn');
-    const nextBtn = document.getElementById('nextPageBtn');
-    if (pageInd) pageInd.textContent = `Page ${currentPage} of ${totalPages} (${filtered.length} peaks)`;
-    if (prevBtn) prevBtn.disabled = currentPage === 1;
-    if (nextBtn) nextBtn.disabled = currentPage === totalPages;
+  if (previousButton) {
+    previousButton.disabled = currentPage === 1;
+  }
+
+  if (nextButton) {
+    nextButton.disabled = currentPage === totalPages;
   }
 
   updateCounterAndTrophies();
+}
 
+function renderPeakCards(peaks) {
+  const container = document.getElementById('peaksGrid');
+  if (!container) return;
 
-  document.getElementById('pageIndicator').textContent = `Page ${currentPage} of ${totalPages} (${filtered.length} peaks)`;
-  document.getElementById('prevPageBtn').disabled = currentPage === 1;
-  document.getElementById('nextPageBtn').disabled = currentPage === totalPages;
+  const fragment = document.createDocumentFragment();
 
-  updateCounterAndTrophies();
+  peaks.forEach(peak => {
+    const isClimbed = climbedNames.has(peak.name);
+
+    const column = document.createElement('div');
+    column.className = 'col-12 col-md-6 col-lg-4';
+
+    const card = document.createElement('div');
+    card.className = `peak-card ${isClimbed ? 'is-climbed' : ''}`;
+
+    const information = document.createElement('div');
+
+    const headingRow = document.createElement('div');
+    headingRow.className =
+      'd-flex justify-content-between align-items-center mb-2';
+
+    const region = document.createElement('span');
+    region.className = 'pill-region';
+    region.textContent = peak.county;
+
+    const elevation = document.createElement('span');
+    elevation.className = 'peak-elevation';
+    elevation.textContent = `${peak.height}m`;
+
+    headingRow.append(region, elevation);
+
+    const heading = document.createElement('h3');
+    heading.className = 'h4 fw-bold mb-1';
+    heading.textContent = peak.name;
+
+    const difficulty = document.createElement('p');
+    difficulty.className = 'small text-muted fw-semibold mb-2';
+    difficulty.textContent = `Arderin List • ${peak.difficulty}`;
+
+    const note = document.createElement('p');
+    note.className = 'small text-secondary mb-2';
+    note.textContent = peak.note;
+
+    information.append(
+      headingRow,
+      heading,
+      difficulty,
+      note
+    );
+
+    const actions = document.createElement('div');
+
+    const weather = document.createElement('div');
+    weather.id = `weather-${peak.id}`;
+    weather.className =
+      'weather-strip d-flex justify-content-between align-items-center';
+
+    const weatherPrompt = document.createElement('span');
+    weatherPrompt.className = 'text-muted';
+    weatherPrompt.textContent =
+      'Click forecast for live summit weather';
+
+    weather.appendChild(weatherPrompt);
+
+    const buttonRow = document.createElement('div');
+    buttonRow.className = 'row g-2';
+
+    const climbedColumn = document.createElement('div');
+    climbedColumn.className = 'col-6';
+
+    const climbedButton = document.createElement('button');
+    climbedButton.type = 'button';
+    climbedButton.className =
+      `btn btn-mark-climbed w-100 ${isClimbed ? 'climbed-active' : ''}`;
+    climbedButton.textContent =
+      isClimbed ? '✓ Climbed' : 'Mark Climbed';
+
+    climbedButton.addEventListener('click', () => {
+      toggleClimbed(peak.name);
+    });
+
+    climbedColumn.appendChild(climbedButton);
+
+    const weatherColumn = document.createElement('div');
+    weatherColumn.className = 'col-6';
+
+    const weatherButton = document.createElement('button');
+    weatherButton.type = 'button';
+    weatherButton.className = 'btn btn-alpine w-100';
+    weatherButton.textContent = '7-Day Forecast';
+
+    weatherButton.addEventListener('click', () => {
+      fetchSummitWeather(
+        peak.id,
+        peak.lat,
+        peak.lon
+      );
+    });
+
+    weatherColumn.appendChild(weatherButton);
+    buttonRow.append(climbedColumn, weatherColumn);
+    actions.append(weather, buttonRow);
+
+    card.append(information, actions);
+    column.appendChild(card);
+    fragment.appendChild(column);
+  });
+
+  container.replaceChildren(fragment);
 }
 
 function toggleClimbed(peakName) {
-  if (climbedNames.includes(peakName)) {
-    climbedNames = climbedNames.filter(n => n !== peakName);
+  if (climbedNames.has(peakName)) {
+    climbedNames.delete(peakName);
   } else {
-    climbedNames.push(peakName);
+    climbedNames.add(peakName);
   }
-  localStorage.setItem('irelandClimbedNames', JSON.stringify(climbedNames));
+
+  saveClimbedNames();
   renderDashboard();
+
+  if (leafletMap) {
+    renderMapMarkers(false);
+  }
 }
 
 function setTrophyFilter(filter) {
+  if (!['all', 'unlocked', 'locked'].includes(filter)) return;
+
   trophyFilter = filter;
   updateCounterAndTrophies();
 }
 
+/* ==========================================================================
+   Trophies
+   ========================================================================== */
+
 function updateCounterAndTrophies() {
-  document.getElementById('climbedCounter').textContent = `${climbedNames.length} / ${allPeaks.length} Arderins Climbed`;
+  const counter = document.getElementById('climbedCounter');
 
-  const has = name => climbedNames.some(c => c.toLowerCase().includes(name.toLowerCase()));
-  const count = climbedNames.length;
+  if (counter) {
+    counter.textContent =
+      `${climbedNames.size} / ${allPeaks.length} Arderins Climbed`;
+  }
 
-  // Sort peaks by exact height for Top 10 / Top 20 Ireland checks
-  const sortedByHeight = [...allPeaks].sort((a, b) => b.exactHeight - a.exactHeight);
-  const top10Names = sortedByHeight.slice(0, 10).map(p => p.name);
-  const top20Names = sortedByHeight.slice(0, 20).map(p => p.name);
-  const countyHighPoints = allPeaks.filter(p => p.isCountyHighPoint);
-  const climbedCoHCount = countyHighPoints.filter(p => climbedNames.includes(p.name)).length;
+  const has = name =>
+    [...climbedNames].some(climbed =>
+      climbed.toLowerCase().includes(name.toLowerCase())
+    );
+
+  const count = climbedNames.size;
+
+  const sortedByHeight = [...allPeaks].sort(
+    (first, second) => second.exactHeight - first.exactHeight
+  );
+
+  const top10Names =
+    sortedByHeight.slice(0, 10).map(peak => peak.name);
+
+  const top20Names =
+    sortedByHeight.slice(0, 20).map(peak => peak.name);
+
+  const countyHighPoints =
+    allPeaks.filter(peak => peak.isCountyHighPoint);
+
+  const climbedCountyHighPoints = countyHighPoints.filter(peak =>
+    climbedNames.has(peak.name)
+  ).length;
 
   const trophies = [
-    // Core & Provincial Challenges
-    { icon: '🥾', title: 'First Summit', desc: 'Log your first 500m+ Irish mountain.', unlocked: count >= 1 },
-    { icon: '👑', title: 'King of Ireland', desc: 'Summit Carrauntoohil (1,039m), Ireland’s highest peak.', unlocked: has('Carrauntoohil') },
-    { icon: '🏔️', title: 'The 1,000m Club', desc: 'Climb all 3 Irish 1,000m+ peaks: Carrauntoohil, Beenkeragh & Caher.', unlocked: has('Carrauntoohil') && has('Beenkeragh') && has('Caher') },
-    { icon: '🏆', title: 'Four Provincial Peaks', desc: 'Conquer Carrauntoohil, Lugnaquillia, Slieve Donard & Mweelrea.', unlocked: has('Carrauntoohil') && has('Lugnaquillia') && has('Slieve Donard') && has('Mweelrea') },
-
-    // Height Rankings
-    { icon: '🔟', title: 'Top 10 in Ireland', desc: 'Summit all 10 highest peaks in Ireland (931m+).', unlocked: top10Names.length === 10 && top10Names.every(n => climbedNames.includes(n)) },
-    { icon: '🥇', title: 'Top 20 in Ireland', desc: 'Summit all 20 highest peaks in Ireland (834m+).', unlocked: top20Names.length === 20 && top20Names.every(n => climbedNames.includes(n)) },
-
-    // County & Province High Points
-    { icon: '📍', title: 'First County High Point', desc: 'Summit the highest peak of any Irish county.', unlocked: climbedCoHCount >= 1 },
-    { icon: '🟢', title: 'Leinster County Tops', desc: 'Lugnaquillia, Mount Leinster, Kippure, Arderin & Croghan Mtn.', unlocked: has('Lugnaquillia') && has('Mount Leinster') && has('Kippure') && has('Arderin') && has('Croghan Mountain') },
-    { icon: '🔵', title: 'Munster County Tops', desc: 'Carrauntoohil, Galtymore, Knockboy, Knockmealdown & Moylussa.', unlocked: has('Carrauntoohil') && has('Galtymore') && has('Knockboy') && has('Knockmealdown') && has('Moylussa') },
-    { icon: '🟡', title: 'Connacht County Tops', desc: 'Mweelrea, Benbaun, Truskmore & Slieve Anierin.', unlocked: has('Mweelrea') && has('Benbaun') && has('Truskmore') && has('Slieve Anierin') },
-    { icon: '🔴', title: 'Ulster County Tops', desc: 'Slieve Donard, Errigal, Sawel, Cuilcagh, Trostan & Slieve Gullion.', unlocked: has('Slieve Donard') && has('Errigal') && has('Sawel') && has('Cuilcagh') && has('Trostan') && has('Slieve Gullion') },
-    { icon: '🇮🇪', title: 'All-Ireland County Tops', desc: 'Conquer every 500m+ County High Point in Ireland.', unlocked: countyHighPoints.length > 0 && climbedCoHCount === countyHighPoints.length },
-
-    // Regional & Classic Irish Challenges
-    { icon: '🏙️', title: 'Dublin Mountains Duo', desc: 'Climb Kippure & Two Rock Mountain (Fairy Castle).', unlocked: has('Kippure') && has('Two Rock') },
-    { icon: '🌲', title: 'Wicklow Wanderer', desc: 'Climb Lugnaquillia, Tonelagee & Djouce in the Garden County.', unlocked: has('Lugnaquillia') && has('Tonelagee') && has('Djouce') },
-    { icon: '🧱', title: 'Mourne Wall Challenge', desc: 'Summit Donard, Commedagh, Bearnagh, Meelmore, Meelbeg, Binnian & Muck.', unlocked: has('Slieve Donard') && has('Slieve Commedagh') && has('Slieve Bearnagh') && has('Slieve Meelmore') && has('Slieve Meelbeg') && has('Slieve Binnian') && has('Slieve Muck') },
-    { icon: '⛪', title: 'Holy Mountain Pilgrim', desc: 'Reach the chapel summit of Croagh Patrick (764m).', unlocked: has('Croagh Patrick') },
-
-    // Step-by-Step Summit Milestones (5 to 409)
-    { icon: '⛰️', title: '5 Arderins Club', desc: 'Reach 5 summits on the 500m+ Arderins list.', unlocked: count >= 5 },
-    { icon: '🔟', title: '10 Peaks Explorer', desc: 'Log 10 Irish mountains.', unlocked: count >= 10 },
-    { icon: '🥾', title: '20 Peaks Trailblazer', desc: 'Log 20 Irish mountains.', unlocked: count >= 20 },
-    { icon: '🧭', title: '30 Peaks Navigator', desc: 'Log 30 Irish mountains.', unlocked: count >= 30 },
-    { icon: '⭐', title: '50 Peaks Half-Century', desc: 'Log 50 Irish mountains.', unlocked: count >= 50 },
-    { icon: '💯', title: '100 Peaks Centurion', desc: 'Log 100 Irish mountains.', unlocked: count >= 100 },
-    { icon: '🌗', title: '205 Halfway Hero', desc: 'Pass the halfway mark of the Arderins list.', unlocked: count >= 205 },
-    { icon: '🔥', title: '300 Peaks Legend', desc: 'Log 300 Irish mountains.', unlocked: count >= 300 },
-    { icon: '🏅', title: '409 Arderins Complete', desc: 'Climb every single 500m+ peak in Ireland!', unlocked: allPeaks.length > 0 && count >= allPeaks.length }
+    {
+      icon: '🥾',
+      title: 'First Summit',
+      desc: 'Log your first 500m+ Irish mountain.',
+      unlocked: count >= 1
+    },
+    {
+      icon: '👑',
+      title: 'King of Ireland',
+      desc: 'Summit Carrauntoohil, Ireland\'s highest peak.',
+      unlocked: has('Carrauntoohil')
+    },
+    {
+      icon: '🏔️',
+      title: 'The 1,000m Club',
+      desc: 'Climb Carrauntoohil, Beenkeragh and Caher.',
+      unlocked:
+        has('Carrauntoohil') &&
+        has('Beenkeragh') &&
+        has('Caher')
+    },
+    {
+      icon: '🏆',
+      title: 'Four Provincial Peaks',
+      desc: 'Conquer Carrauntoohil, Lugnaquillia, Slieve Donard and Mweelrea.',
+      unlocked:
+        has('Carrauntoohil') &&
+        has('Lugnaquillia') &&
+        has('Slieve Donard') &&
+        has('Mweelrea')
+    },
+    {
+      icon: '🔟',
+      title: 'Top 10 in Ireland',
+      desc: 'Summit all 10 highest peaks in Ireland.',
+      unlocked:
+        top10Names.length === 10 &&
+        top10Names.every(name => climbedNames.has(name))
+    },
+    {
+      icon: '🥇',
+      title: 'Top 20 in Ireland',
+      desc: 'Summit all 20 highest peaks in Ireland.',
+      unlocked:
+        top20Names.length === 20 &&
+        top20Names.every(name => climbedNames.has(name))
+    },
+    {
+      icon: '📍',
+      title: 'First County High Point',
+      desc: 'Summit the highest peak of any Irish county.',
+      unlocked: climbedCountyHighPoints >= 1
+    },
+    {
+      icon: '🟢',
+      title: 'Leinster County Tops',
+      desc: 'Conquer the Leinster county high points.',
+      unlocked:
+        has('Lugnaquillia') &&
+        has('Mount Leinster') &&
+        has('Kippure') &&
+        has('Arderin') &&
+        has('Croghan Mountain')
+    },
+    {
+      icon: '🔵',
+      title: 'Munster County Tops',
+      desc: 'Conquer the Munster county high points.',
+      unlocked:
+        has('Carrauntoohil') &&
+        has('Galtymore') &&
+        has('Knockboy') &&
+        has('Knockmealdown') &&
+        has('Moylussa')
+    },
+    {
+      icon: '🟡',
+      title: 'Connacht County Tops',
+      desc: 'Conquer the Connacht county high points.',
+      unlocked:
+        has('Mweelrea') &&
+        has('Benbaun') &&
+        has('Truskmore') &&
+        has('Slieve Anierin')
+    },
+    {
+      icon: '🔴',
+      title: 'Ulster County Tops',
+      desc: 'Conquer the Ulster county high points.',
+      unlocked:
+        has('Slieve Donard') &&
+        has('Errigal') &&
+        has('Sawel') &&
+        has('Cuilcagh') &&
+        has('Trostan') &&
+        has('Slieve Gullion')
+    },
+    {
+      icon: '🇮🇪',
+      title: 'All-Ireland County Tops',
+      desc: 'Conquer every 500m+ County High Point in Ireland.',
+      unlocked:
+        countyHighPoints.length > 0 &&
+        climbedCountyHighPoints === countyHighPoints.length
+    },
+    {
+      icon: '🏙️',
+      title: 'Dublin Mountains Duo',
+      desc: 'Climb Kippure and Two Rock Mountain.',
+      unlocked: has('Kippure') && has('Two Rock')
+    },
+    {
+      icon: '🌲',
+      title: 'Wicklow Wanderer',
+      desc: 'Climb Lugnaquillia, Tonelagee and Djouce.',
+      unlocked:
+        has('Lugnaquillia') &&
+        has('Tonelagee') &&
+        has('Djouce')
+    },
+    {
+      icon: '🧱',
+      title: 'Mourne Wall Challenge',
+      desc: 'Complete the Mourne Wall route challenge.',
+      unlocked:
+        has('Slieve Donard') &&
+        has('Slieve Commedagh') &&
+        has('Slieve Bearnagh') &&
+        has('Slieve Meelmore') &&
+        has('Slieve Meelbeg') &&
+        has('Slieve Binnian') &&
+        has('Slieve Muck')
+    },
+    {
+      icon: '⛪',
+      title: 'Holy Mountain Pilgrim',
+      desc: 'Reach the summit of Croagh Patrick.',
+      unlocked: has('Croagh Patrick')
+    },
+    {
+      icon: '⛰️',
+      title: '5 Arderins Club',
+      desc: 'Reach 5 summits on the Arderins list.',
+      unlocked: count >= 5
+    },
+    {
+      icon: '🔟',
+      title: '10 Peaks Explorer',
+      desc: 'Log 10 Irish mountains.',
+      unlocked: count >= 10
+    },
+    {
+      icon: '🥾',
+      title: '20 Peaks Trailblazer',
+      desc: 'Log 20 Irish mountains.',
+      unlocked: count >= 20
+    },
+    {
+      icon: '🧭',
+      title: '30 Peaks Navigator',
+      desc: 'Log 30 Irish mountains.',
+      unlocked: count >= 30
+    },
+    {
+      icon: '⭐',
+      title: '50 Peaks Half-Century',
+      desc: 'Log 50 Irish mountains.',
+      unlocked: count >= 50
+    },
+    {
+      icon: '💯',
+      title: '100 Peaks Centurion',
+      desc: 'Log 100 Irish mountains.',
+      unlocked: count >= 100
+    },
+    {
+      icon: '🌗',
+      title: '205 Halfway Hero',
+      desc: 'Pass the halfway mark of the Arderins list.',
+      unlocked: count >= 205
+    },
+    {
+      icon: '🔥',
+      title: '300 Peaks Legend',
+      desc: 'Log 300 Irish mountains.',
+      unlocked: count >= 300
+    },
+    {
+      icon: '🏅',
+      title: '409 Arderins Complete',
+      desc: 'Climb every peak on the 500m+ Arderins list!',
+      unlocked:
+        allPeaks.length > 0 &&
+        count >= allPeaks.length
+    }
   ];
 
-  const unlockedCount = trophies.filter(t => t.unlocked).length;
-  const visibleTrophies = trophies.filter(t => {
-    if (trophyFilter === 'unlocked') return t.unlocked;
-    if (trophyFilter === 'locked') return !t.unlocked;
+  const unlockedCount =
+    trophies.filter(trophy => trophy.unlocked).length;
+
+  const visibleTrophies = trophies.filter(trophy => {
+    if (trophyFilter === 'unlocked') return trophy.unlocked;
+    if (trophyFilter === 'locked') return !trophy.unlocked;
     return true;
   });
 
   const cabinet = document.getElementById('trophyCabinet');
-  cabinet.innerHTML = `
-    <div class="col-12 d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
-      <span class="small fw-bold text-success">${unlockedCount} of ${trophies.length} Trophies Unlocked</span>
-      <div class="btn-group btn-group-sm" role="group">
-        <button type="button" class="btn ${trophyFilter === 'all' ? 'btn-alpine' : 'btn-outline-secondary'}" onclick="setTrophyFilter('all')">All (${trophies.length})</button>
-        <button type="button" class="btn ${trophyFilter === 'unlocked' ? 'btn-alpine' : 'btn-outline-secondary'}" onclick="setTrophyFilter('unlocked')">Unlocked (${unlockedCount})</button>
-        <button type="button" class="btn ${trophyFilter === 'locked' ? 'btn-alpine' : 'btn-outline-secondary'}" onclick="setTrophyFilter('locked')">Locked (${trophies.length - unlockedCount})</button>
-      </div>
-    </div>
-    ${visibleTrophies.map(t => `
-      <div class="col-12 col-sm-6 col-md-4 col-lg-3">
-        <div class="trophy-card ${t.unlocked ? 'unlocked' : 'locked'}">
-          <div>
-            <div class="trophy-icon">${t.icon}</div>
-            <h3 class="h6 fw-bold mb-1">${t.title}</h3>
-            <p class="small text-muted mb-3">${t.desc}</p>
-          </div>
-          <div>
-            <span class="${t.unlocked ? 'badge-unlocked' : 'badge-locked'}">${t.unlocked ? 'Unlocked' : 'Locked'}</span>
-          </div>
-        </div>
-      </div>
-    `).join('')}
-  `;
+  if (!cabinet) return;
+
+  cabinet.replaceChildren();
+
+  const summaryColumn = document.createElement('div');
+  summaryColumn.className =
+    'col-12 d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1';
+
+  const summary = document.createElement('span');
+  summary.className = 'small fw-bold text-success';
+  summary.textContent =
+    `${unlockedCount} of ${trophies.length} Trophies Unlocked`;
+
+  const buttonGroup = document.createElement('div');
+  buttonGroup.className = 'btn-group btn-group-sm';
+  buttonGroup.setAttribute('role', 'group');
+
+  const filterOptions = [
+    ['all', `All (${trophies.length})`],
+    ['unlocked', `Unlocked (${unlockedCount})`],
+    ['locked', `Locked (${trophies.length - unlockedCount})`]
+  ];
+
+  filterOptions.forEach(([filter, text]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className =
+      `btn ${trophyFilter === filter ? 'btn-alpine' : 'btn-outline-secondary'}`;
+    button.textContent = text;
+
+    button.addEventListener('click', () => {
+      setTrophyFilter(filter);
+    });
+
+    buttonGroup.appendChild(button);
+  });
+
+  summaryColumn.append(summary, buttonGroup);
+  cabinet.appendChild(summaryColumn);
+
+  visibleTrophies.forEach(trophy => {
+    const column = document.createElement('div');
+    column.className =
+      'col-12 col-sm-6 col-md-4 col-lg-3';
+
+    const card = document.createElement('div');
+    card.className =
+      `trophy-card ${trophy.unlocked ? 'unlocked' : 'locked'}`;
+
+    const information = document.createElement('div');
+
+    const icon = document.createElement('div');
+    icon.className = 'trophy-icon';
+    icon.textContent = trophy.icon;
+
+    const title = document.createElement('h3');
+    title.className = 'h6 fw-bold mb-1';
+    title.textContent = trophy.title;
+
+    const description = document.createElement('p');
+    description.className = 'small text-muted mb-3';
+    description.textContent = trophy.desc;
+
+    information.append(icon, title, description);
+
+    const status = document.createElement('div');
+
+    const badge = document.createElement('span');
+    badge.className =
+      trophy.unlocked ? 'badge-unlocked' : 'badge-locked';
+    badge.textContent =
+      trophy.unlocked ? 'Unlocked' : 'Locked';
+
+    status.appendChild(badge);
+    card.append(information, status);
+    column.appendChild(card);
+    cabinet.appendChild(column);
+  });
+}
+
+/* ==========================================================================
+   Weather
+   ========================================================================== */
+
+async function getSummitWeather(lat, lon) {
+  const cacheKey = `${lat},${lon}`;
+
+  if (WEATHER_CACHE.has(cacheKey)) {
+    return WEATHER_CACHE.get(cacheKey);
+  }
+
+  const parameters = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    daily: 'temperature_2m_max,precipitation_sum,windspeed_10m_max',
+    timezone: 'Europe/Dublin'
+  });
+
+  const request = (async () => {
+    const response = await fetch(
+      `https://api.open-meteo.com/v1/forecast?${parameters}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Weather API returned ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.reason || 'Weather API error');
+    }
+
+    if (
+      !data.daily ||
+      !Array.isArray(data.daily.time) ||
+      !Array.isArray(data.daily.temperature_2m_max) ||
+      !Array.isArray(data.daily.precipitation_sum) ||
+      !Array.isArray(data.daily.windspeed_10m_max)
+    ) {
+      throw new Error('Weather response is incomplete');
+    }
+
+    return data;
+  })();
+
+  WEATHER_CACHE.set(cacheKey, request);
+
+  try {
+    return await request;
+  } catch (error) {
+    WEATHER_CACHE.delete(cacheKey);
+    throw error;
+  }
 }
 
 async function fetchSummitWeather(id, lat, lon) {
   const box = document.getElementById(`weather-${id}`);
-  box.innerHTML = '<span class="text-muted">Loading summit forecast...</span>';
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,precipitation_sum,windspeed_10m_max&timezone=Europe%2FDublin`;
-    const res = await fetch(url);
-    const data = await res.json();
-    const t = Math.round(data.daily.temperature_2m_max[0]);
-    const r = data.daily.precipitation_sum[0];
-    const w = Math.round(data.daily.windspeed_10m_max[0]);
-    const status = r > 1.5 ? 'Wet Conditions' : (w > 35 ? 'Windy Ridge' : 'Clear Hike');
+  if (!box) return;
 
-    box.innerHTML = `
-      <span><strong>Now:</strong> ${t}&deg;C &bull; Wind ${w} km/h</span>
-      <span class="fw-semibold text-secondary">${status}</span>
-    `;
-  } catch {
-    box.innerHTML = '<span class="text-danger">Weather unavailable</span>';
+  box.replaceChildren();
+
+  const loading = document.createElement('span');
+  loading.className = 'text-muted';
+  loading.textContent = 'Loading summit forecast...';
+  box.appendChild(loading);
+
+  try {
+    const data = await getSummitWeather(lat, lon);
+
+    const temperature =
+      data.daily.temperature_2m_max[0];
+
+    const rain =
+      data.daily.precipitation_sum[0];
+
+    const wind =
+      data.daily.windspeed_10m_max[0];
+
+    if (
+      temperature == null ||
+      rain == null ||
+      wind == null
+    ) {
+      throw new Error('No forecast data is available');
+    }
+
+    const status =
+      rain > 1.5
+        ? 'Wet Conditions'
+        : wind > 35
+          ? 'Windy Ridge'
+          : 'Clear Hike';
+
+    box.replaceChildren();
+
+    const summary = document.createElement('span');
+    summary.append(document.createElement('strong'));
+
+    const strong = summary.firstElementChild;
+    strong.textContent = 'Now: ';
+    summary.append(
+      `${Math.round(temperature)}°C • Wind ${Math.round(wind)} km/h`
+    );
+
+    const condition = document.createElement('span');
+    condition.className = 'fw-semibold text-secondary';
+    condition.textContent = status;
+
+    box.append(summary, condition);
+  } catch (error) {
+    console.error(error);
+
+    box.replaceChildren();
+
+    const unavailable = document.createElement('span');
+    unavailable.className = 'text-danger';
+    unavailable.textContent = 'Weather unavailable';
+    box.appendChild(unavailable);
   }
 }
 
 async function suggestBestUnclimbedPeak() {
-  const dateVal = document.getElementById('freeDateInput').value;
-  const countyVal = document.getElementById('recommenderCounty').value;
-  const resultBox = document.getElementById('recommenderResult');
+  const dateInput = document.getElementById('freeDateInput');
+  const countySelect =
+    document.getElementById('recommenderCounty');
 
-  resultBox.classList.remove('d-none');
-  resultBox.textContent = 'Scanning unclimbed peaks and checking summit weather...';
+  const resultBox =
+    document.getElementById('recommenderResult');
 
-  let candidates = allPeaks.filter(p => !climbedNames.includes(p.name));
-  if (countyVal !== 'all') {
-    candidates = candidates.filter(p => p.county === countyVal);
-  }
+  if (!dateInput || !countySelect || !resultBox) return;
 
-  if (candidates.length === 0) {
-    resultBox.textContent = 'You have climbed every peak in this selection!';
+  const dateVal = dateInput.value;
+  const countyVal = countySelect.value;
+
+  if (!dateVal) {
+    resultBox.classList.remove('d-none');
+    resultBox.textContent = 'Please select a date.';
     return;
   }
 
-  const sample = candidates.sort(() => 0.5 - Math.random()).slice(0, 6);
+  const today = formatLocalDate(new Date());
+  const latest = new Date();
+  latest.setDate(latest.getDate() + WEATHER_MAX_FORECAST_DAYS);
+
+  if (dateVal < today || dateVal > formatLocalDate(latest)) {
+    resultBox.classList.remove('d-none');
+    resultBox.textContent =
+      'Please select a date within the next 7 days.';
+    return;
+  }
+
+  resultBox.classList.remove('d-none');
+  resultBox.textContent =
+    'Scanning unclimbed peaks and checking summit weather...';
+
+  let candidates = allPeaks.filter(
+    peak => !climbedNames.has(peak.name)
+  );
+
+  if (countyVal !== 'all') {
+    candidates = candidates.filter(
+      peak => peak.county === countyVal
+    );
+  }
+
+  if (candidates.length === 0) {
+    resultBox.textContent =
+      'You have climbed every peak in this selection!';
+    return;
+  }
+
+  const sample = [...candidates]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 6);
+
   let bestPeak = null;
   let bestScore = Infinity;
 
-  for (const peak of sample) {
+  await Promise.all(sample.map(async peak => {
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${peak.lat}&longitude=${peak.lon}&daily=temperature_2m_max,precipitation_sum,windspeed_10m_max&timezone=Europe%2FDublin`;
-      const res = await fetch(url);
-      const data = await res.json();
-      const dayIdx = data.daily.time.indexOf(dateVal);
-      const idx = dayIdx !== -1 ? dayIdx : 0;
+      const data = await getSummitWeather(peak.lat, peak.lon);
+      const dayIndex = data.daily.time.indexOf(dateVal);
 
-      const rain = data.daily.precipitation_sum[idx];
-      const wind = data.daily.windspeed_10m_max[idx];
-      const temp = data.daily.temperature_2m_max[idx];
+      if (dayIndex === -1) return;
 
-      const score = rain * 2 + wind * 1.5 - temp * 0.5;
+      const rain =
+        data.daily.precipitation_sum[dayIndex];
+
+      const wind =
+        data.daily.windspeed_10m_max[dayIndex];
+
+      const temperature =
+        data.daily.temperature_2m_max[dayIndex];
+
+      if (
+        rain == null ||
+        wind == null ||
+        temperature == null
+      ) {
+        return;
+      }
+
+      const score =
+        rain * 2 +
+        wind * 1.5 -
+        temperature * 0.5;
+
       if (score < bestScore) {
         bestScore = score;
-        bestPeak = { ...peak, rain, wind, temp };
+        bestPeak = {
+          ...peak,
+          rain,
+          wind,
+          temp: temperature
+        };
       }
-    } catch {
-      continue;
+    } catch (error) {
+      console.warn(
+        `Could not retrieve weather for ${peak.name}`,
+        error
+      );
     }
+  }));
+
+  if (!bestPeak) {
+    resultBox.textContent =
+      'Could not find weather data for the selected date.';
+    return;
   }
 
-  if (bestPeak) {
-    resultBox.innerHTML = `
-      <strong>Recommended Peak:</strong> ${bestPeak.name} (${bestPeak.height}m — ${bestPeak.county})<br>
-      <strong>Forecast for ${dateVal}:</strong> ${Math.round(bestPeak.temp)}&deg;C, Wind ${Math.round(bestPeak.wind)} km/h, Rain ${bestPeak.rain}mm
-    `;
-  } else {
-    resultBox.textContent = 'Could not find suitable weather data—make sure your selected date is within the next 7 days.';
-  }
+  resultBox.replaceChildren();
+
+  const resultHeading =
+    document.createElement('strong');
+
+  resultHeading.textContent = 'Recommended Peak: ';
+
+  const peakText =
+    document.createTextNode(
+      `${bestPeak.name} (${bestPeak.height}m — ${bestPeak.county})`
+    );
+
+  const breakElement =
+    document.createElement('br');
+
+  const forecastHeading =
+    document.createElement('strong');
+
+  forecastHeading.textContent =
+    `Forecast for ${dateVal}: `;
+
+  const forecastText =
+    document.createTextNode(
+      `${Math.round(bestPeak.temp)}°C, ` +
+      `Wind ${Math.round(bestPeak.wind)} km/h, ` +
+      `Rain ${bestPeak.rain}mm`
+    );
+
+  resultBox.append(
+    resultHeading,
+    peakText,
+    breakElement,
+    forecastHeading,
+    forecastText
+  );
 }
+
+/* ==========================================================================
+   Controls
+   ========================================================================== */
 
 function setupControls() {
-  document.getElementById('peakSearch')?.addEventListener('input', () => { currentPage = 1; renderDashboard(); });
-  document.getElementById('countyFilter')?.addEventListener('change', () => { currentPage = 1; renderDashboard(); });
-  document.getElementById('statusFilter')?.addEventListener('change', () => { currentPage = 1; renderDashboard(); });
-  document.getElementById('prevPageBtn')?.addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderDashboard(); } });
-  document.getElementById('nextPageBtn')?.addEventListener('click', () => { currentPage++; renderDashboard(); });
-  document.getElementById('recommendBtn')?.addEventListener('click', suggestBestUnclimbedPeak);
-}
-/* ==========================================================================
-   Interactive Leaflet Map Module (map.html)
-   ========================================================================== */
-let leafletMap = null;
-let markersLayer = null;
+  document
+    .getElementById('peakSearch')
+    ?.addEventListener('input', () => {
+      currentPage = 1;
+      renderDashboard();
+    });
 
-document.addEventListener('DOMContentLoaded', function () {
-  // Wait briefly for loadArderinsCSV() in the main listener to finish
-  setTimeout(initIrelandMap, 400);
-});
+  document
+    .getElementById('countyFilter')
+    ?.addEventListener('change', () => {
+      currentPage = 1;
+      renderDashboard();
+    });
+
+  document
+    .getElementById('statusFilter')
+    ?.addEventListener('change', () => {
+      currentPage = 1;
+      renderDashboard();
+    });
+
+  document
+    .getElementById('prevPageBtn')
+    ?.addEventListener('click', () => {
+      if (currentPage > 1) {
+        currentPage -= 1;
+        renderDashboard();
+      }
+    });
+
+  document
+    .getElementById('nextPageBtn')
+    ?.addEventListener('click', () => {
+      currentPage += 1;
+      renderDashboard();
+    });
+
+  document
+    .getElementById('recommendBtn')
+    ?.addEventListener('click', suggestBestUnclimbedPeak);
+
+  const mapRange =
+    document.getElementById('mapRangeFilter');
+
+  mapRange?.addEventListener('change', () => {
+    renderMapMarkers(true);
+  });
+
+  document
+    .getElementById('mapStatusFilter')
+    ?.addEventListener('change', () => {
+      renderMapMarkers(false);
+    });
+}
+
+/* ==========================================================================
+   Leaflet map
+   ========================================================================== */
 
 function initIrelandMap() {
-  const mapEl = document.getElementById('irelandMap');
-  if (!mapEl || typeof L === 'undefined') return;
+  const mapElement =
+    document.getElementById('irelandMap');
 
-  // Center on Ireland
-  leafletMap = L.map('irelandMap').setView([53.42, -7.95], 7);
+  if (!mapElement || typeof L === 'undefined') return;
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 17,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(leafletMap);
+  leafletMap = L.map(mapElement).setView([53.42, -7.95], 7);
+
+  L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      maxZoom: 17,
+      attribution: '&copy; OpenStreetMap contributors'
+    }
+  ).addTo(leafletMap);
 
   markersLayer = L.layerGroup().addTo(leafletMap);
-
-  // Populate range dropdown on map.html
-  const rangeSelect = document.getElementById('mapRangeFilter');
-  if (rangeSelect && allPeaks.length > 0) {
-    const ranges = [...new Set(allPeaks.map(p => p.county))].sort();
-    ranges.forEach(r => {
-      const opt = document.createElement('option');
-      opt.value = r;
-      opt.textContent = r;
-      rangeSelect.appendChild(opt);
-    });
-    rangeSelect.addEventListener('change', () => renderMapMarkers(true));
-  }
-
-  document.getElementById('mapStatusFilter')?.addEventListener('change', () => renderMapMarkers(false));
-
   renderMapMarkers(false);
 }
 
 function renderMapMarkers(zoomToBounds) {
   if (!leafletMap || !markersLayer) return;
+
   markersLayer.clearLayers();
 
-  const rangeVal = document.getElementById('mapRangeFilter')?.value || 'all';
-  const statusVal = document.getElementById('mapStatusFilter')?.value || 'all';
+  const rangeValue =
+    document.getElementById('mapRangeFilter')?.value || 'all';
+
+  const statusValue =
+    document.getElementById('mapStatusFilter')?.value || 'all';
+
   const bounds = [];
 
   allPeaks.forEach(peak => {
-    const isClimbed = climbedNames.includes(peak.name);
-    if (rangeVal !== 'all' && peak.county !== rangeVal) return;
-    if (statusVal === 'climbed' && !isClimbed) return;
-    if (statusVal === 'unclimbed' && isClimbed) return;
+    const isClimbed =
+      climbedNames.has(peak.name);
 
-    const marker = L.circleMarker([peak.lat, peak.lon], {
-      radius: isClimbed ? 8 : 6,
-      fillColor: isClimbed ? '#10B981' : '#64748B',
-      color: '#FFFFFF',
-      weight: 2,
-      opacity: 1,
-      fillOpacity: 0.9
+    if (
+      rangeValue !== 'all' &&
+      peak.county !== rangeValue
+    ) {
+      return;
+    }
+
+    if (
+      statusValue === 'climbed' &&
+      !isClimbed
+    ) {
+      return;
+    }
+
+    if (
+      statusValue === 'unclimbed' &&
+      isClimbed
+    ) {
+      return;
+    }
+
+    const marker = L.circleMarker(
+      [peak.lat, peak.lon],
+      {
+        radius: isClimbed ? 8 : 6,
+        fillColor: isClimbed ? '#10B981' : '#64748B',
+        color: '#FFFFFF',
+        weight: 2,
+        opacity: 1,
+        fillOpacity: 0.9
+      }
+    );
+
+    const popup = document.createElement('div');
+    popup.style.minWidth = '170px';
+
+    const name = document.createElement('strong');
+    name.textContent = peak.name;
+
+    const height = document.createTextNode(
+      ` (${peak.height}m)`
+    );
+
+    popup.append(name, height);
+    popup.appendChild(document.createElement('br'));
+
+    const county = document.createElement('span');
+    county.style.fontSize = '12px';
+    county.style.color = '#475569';
+    county.textContent = peak.county;
+
+    popup.appendChild(county);
+    popup.appendChild(document.createElement('br'));
+
+    const climbedButton =
+      document.createElement('button');
+
+    climbedButton.type = 'button';
+    climbedButton.className =
+      `btn btn-sm mt-2 w-100 ${
+        isClimbed
+          ? 'btn-success'
+          : 'btn-outline-success'
+      }`;
+
+    climbedButton.textContent =
+      isClimbed ? '✓ Climbed' : 'Mark Climbed';
+
+    climbedButton.addEventListener('click', () => {
+      toggleClimbed(peak.name);
+
+      if (leafletMap) {
+        leafletMap.closePopup();
+      }
     });
 
-    const safeName = peak.name.replace(/'/g, "\\'");
-    marker.bindPopup(`
-      <div style="min-width:170px;">
-        <strong>${peak.name}</strong> (${peak.height}m)<br>
-        <span style="font-size:12px;color:#475569;">${peak.county}</span><br>
-        <button type="button" class="btn btn-sm mt-2 w-100 ${isClimbed ? 'btn-success' : 'btn-outline-success'}"
-          onclick="toggleClimbedFromMap('${safeName}')">
-          ${isClimbed ? '✓ Climbed' : 'Mark Climbed'}
-        </button>
-      </div>
-    `);
+    popup.appendChild(climbedButton);
 
+    marker.bindPopup(popup);
     marker.addTo(markersLayer);
+
     bounds.push([peak.lat, peak.lon]);
   });
 
   if (zoomToBounds && bounds.length > 0) {
-    leafletMap.fitBounds(bounds, { padding:, maxZoom: 11 });
+    leafletMap.fitBounds(bounds, {
+      padding: [20, 20],
+      maxZoom: 11
+    });
   }
 }
 
+/* ==========================================================================
+   Global compatibility
+   ========================================================================== */
+
+window.toggleClimbed = toggleClimbed;
+window.setTrophyFilter = setTrophyFilter;
+window.toggleClimbedFromMap = toggleClimbedFromMap;
+
+/* Legacy compatibility for map calls */
 function toggleClimbedFromMap(peakName) {
   toggleClimbed(peakName);
-  renderMapMarkers(false);
 }
