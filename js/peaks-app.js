@@ -403,3 +403,94 @@ function setupControls() {
   document.getElementById('nextPageBtn')?.addEventListener('click', () => { currentPage++; renderDashboard(); });
   document.getElementById('recommendBtn')?.addEventListener('click', suggestBestUnclimbedPeak);
 }
+/* ==========================================================================
+   Interactive Leaflet Map Module (map.html)
+   ========================================================================== */
+let leafletMap = null;
+let markersLayer = null;
+
+document.addEventListener('DOMContentLoaded', function () {
+  // Wait briefly for loadArderinsCSV() in the main listener to finish
+  setTimeout(initIrelandMap, 400);
+});
+
+function initIrelandMap() {
+  const mapEl = document.getElementById('irelandMap');
+  if (!mapEl || typeof L === 'undefined') return;
+
+  // Center on Ireland
+  leafletMap = L.map('irelandMap').setView([53.42, -7.95], 7);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 17,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(leafletMap);
+
+  markersLayer = L.layerGroup().addTo(leafletMap);
+
+  // Populate range dropdown on map.html
+  const rangeSelect = document.getElementById('mapRangeFilter');
+  if (rangeSelect && allPeaks.length > 0) {
+    const ranges = [...new Set(allPeaks.map(p => p.county))].sort();
+    ranges.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r;
+      opt.textContent = r;
+      rangeSelect.appendChild(opt);
+    });
+    rangeSelect.addEventListener('change', () => renderMapMarkers(true));
+  }
+
+  document.getElementById('mapStatusFilter')?.addEventListener('change', () => renderMapMarkers(false));
+
+  renderMapMarkers(false);
+}
+
+function renderMapMarkers(zoomToBounds) {
+  if (!leafletMap || !markersLayer) return;
+  markersLayer.clearLayers();
+
+  const rangeVal = document.getElementById('mapRangeFilter')?.value || 'all';
+  const statusVal = document.getElementById('mapStatusFilter')?.value || 'all';
+  const bounds = [];
+
+  allPeaks.forEach(peak => {
+    const isClimbed = climbedNames.includes(peak.name);
+    if (rangeVal !== 'all' && peak.county !== rangeVal) return;
+    if (statusVal === 'climbed' && !isClimbed) return;
+    if (statusVal === 'unclimbed' && isClimbed) return;
+
+    const marker = L.circleMarker([peak.lat, peak.lon], {
+      radius: isClimbed ? 8 : 6,
+      fillColor: isClimbed ? '#10B981' : '#64748B',
+      color: '#FFFFFF',
+      weight: 2,
+      opacity: 1,
+      fillOpacity: 0.9
+    });
+
+    const safeName = peak.name.replace(/'/g, "\\'");
+    marker.bindPopup(`
+      <div style="min-width:170px;">
+        <strong>${peak.name}</strong> (${peak.height}m)<br>
+        <span style="font-size:12px;color:#475569;">${peak.county}</span><br>
+        <button type="button" class="btn btn-sm mt-2 w-100 ${isClimbed ? 'btn-success' : 'btn-outline-success'}"
+          onclick="toggleClimbedFromMap('${safeName}')">
+          ${isClimbed ? '✓ Climbed' : 'Mark Climbed'}
+        </button>
+      </div>
+    `);
+
+    marker.addTo(markersLayer);
+    bounds.push([peak.lat, peak.lon]);
+  });
+
+  if (zoomToBounds && bounds.length > 0) {
+    leafletMap.fitBounds(bounds, { padding:, maxZoom: 11 });
+  }
+}
+
+function toggleClimbedFromMap(peakName) {
+  toggleClimbed(peakName);
+  renderMapMarkers(false);
+}
