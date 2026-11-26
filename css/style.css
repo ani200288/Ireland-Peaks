@@ -1,113 +1,173 @@
 /* ==========================================================================
-   PeakLog Ireland - Custom Stylesheet
+   PeakLog Ireland - Refined Alpine Card Design System
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap');
+@import url('https://googleapis.com');
 
 :root {
-  --moss-dark: #1B4332;
-  --moss-primary: #2D6A4F;
-  --moss-light: #D8F3DC;
-  --slate-bg: #F3F6F4;
-  --amber-gold: #F59E0B;
-  --text-main: #1F2937;
+  --alpine-green: #1B4332;
+  --alpine-mid: #2D6A4F;
+  --alpine-pill-bg: #E6F4EA;
+  --slate-bg: #F4F6F5;
+  --card-white: #FFFFFF;
+  --text-dark: #111827;
+  --text-muted: #64748B;
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--slate-bg);
-  color: var(--text-main);
-  padding-top: 64px;
+  color: var(--text-dark);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 h1, h2, h3, .navbar-brand {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: 'Outfit', sans-serif;
   letter-spacing: -0.02em;
 }
 
-.navbar-peaks {
-  background-color: var(--moss-dark);
+/* Navbar & Hero */
+.navbar-alpine {
+  background-color: var(--alpine-green);
 }
 
-.badge-gold {
-  background-color: var(--amber-gold);
-  color: #111827;
-  font-weight: 800;
-}
-
-.badge-moss {
-  background-color: var(--moss-light);
-  color: var(--moss-dark);
-  font-weight: 700;
-}
-
-.hero-peaks {
-  background: linear-gradient(135deg, var(--moss-dark) 0%, var(--moss-primary) 100%);
-}
-
-.stats-panel {
-  background: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.card-peaks {
-  background: #FFFFFF;
-  border: 1px solid #E2E8F0;
-  border-radius: 0.85rem;
-  box-shadow: 0 4px 14px rgba(27, 67, 50, 0.06);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-  height: 100%;
-}
-
-.card-peaks:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 10px 24px rgba(27, 67, 50, 0.12);
-}
-
-.card-climbed {
-  border: 2px solid var(--moss-primary);
-  background-color: #F7FCF9;
-}
-
-.btn-moss {
-  background-color: var(--moss-primary);
-  border-color: var(--moss-primary);
+.hero-alpine {
+  background: linear-gradient(135deg, var(--alpine-green) 0%, var(--alpine-mid) 100%);
   color: #FFFFFF;
-  font-weight: 600;
+  border-radius: 1rem;
+  box-shadow: 0 8px 24px rgba(27, 67, 50, 0.16);
 }
 
-.btn-moss:hover {
-  background-color: var(--moss-dark);
-  border-color: var(--moss-dark);
-  color: #FFFFFF;
-}
-
-.recommendation-box {
-  background-color: var(--moss-light);
-  border-left: 4px solid var(--moss-dark);
-}
-
-/* Trophy Cards */
+/* Trophy Cards (Left-aligned with icon & pill badge) */
 .trophy-card {
-  border-radius: 0.75rem;
-  padding: 1rem;
-  border: 1px solid #CBD5E1;
-  background-color: #FFFFFF;
-  opacity: 0.55;
-  filter: grayscale(100%);
-  transition: all 0.25s ease;
+  background-color: var(--card-white);
+  border: 1px solid #E2E8F0;
+  border-radius: 0.9rem;
+  padding: 1.25rem;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .trophy-card.unlocked {
-  opacity: 1;
-  filter: none;
-  border: 2px solid var(--amber-gold);
-  background: linear-gradient(180deg, #FFFBEB 0%, #FFFFFF 100%);
-  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.18);
+  border-color: #10B981;
+  background-color: #F6FEF9;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.12);
 }
 
-.footer-peaks {
-  background-color: var(--moss-dark);
+.trophy-card.locked {
+  opacity: 0.72;
+}
+
+.trophy-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.badge-locked {
+  background-color: #94A3B8;
+  color: #FFFFFF;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.35rem;
+  display: inline-block;
+}
+
+.badge-unlocked {
+  background-color: var(--alpine-mid);
+  color: #FFFFFF;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.35rem;
+  display: inline-block;
+}
+
+/* Peak Cards */
+.peak-card {
+  background-color: var(--card-white);
+  border: 1px solid #E2E8F0;
+  border-radius: 1rem;
+  padding: 1.35rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.peak-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(27, 67, 50, 0.1);
+}
+
+.peak-card.is-climbed {
+  border: 2px solid var(--alpine-mid);
+  background-color: #F7FCF9;
+}
+
+.pill-region {
+  background-color: var(--alpine-pill-bg);
+  color: var(--alpine-green);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 0.4rem;
+  display: inline-block;
+}
+
+.peak-elevation {
+  color: var(--alpine-mid);
+  font-family: 'Outfit', sans-serif;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.weather-strip {
+  border-top: 1px solid #F1F5F9;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.82rem;
+  color: var(--text-dark);
+}
+
+/* Side-by-Side Action Buttons */
+.btn-mark-climbed {
+  border: 1px solid #CBD5E1;
+  background-color: #FFFFFF;
+  color: var(--text-dark);
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-radius: 0.5rem;
+}
+
+.btn-mark-climbed:hover {
+  background-color: #F8FAFC;
+  border-color: var(--alpine-mid);
+}
+
+.btn-mark-climbed.climbed-active {
+  background-color: var(--alpine-pill-bg);
+  border-color: var(--alpine-mid);
+  color: var(--alpine-green);
+}
+
+.btn-alpine {
+  background-color: var(--alpine-mid);
+  border-color: var(--alpine-mid);
+  color: #FFFFFF;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-radius: 0.5rem;
+}
+
+.btn-alpine:hover {
+  background-color: var(--alpine-green);
+  border-color: var(--alpine-green);
+  color: #FFFFFF;
 }
