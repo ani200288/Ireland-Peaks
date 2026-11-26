@@ -38,9 +38,9 @@ h1, h2, h3, .navbar-brand {
   box-shadow: 0 8px 24px rgba(27, 67, 50, 0.16);
 }
 
-/* Trophy Cards (Left-aligned with icon & pill badge) */
+/* Trophy Cards: Greyed-out Locked vs. Highlighted Completed */
 .trophy-card {
-  background-color: var(--card-white);
+  background-color: #FFFFFF;
   border: 1px solid #E2E8F0;
   border-radius: 0.9rem;
   padding: 1.25rem;
@@ -51,19 +51,19 @@ h1, h2, h3, .navbar-brand {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.trophy-card.unlocked {
-  border-color: #10B981;
-  background-color: #F6FEF9;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.12);
-}
-
 .trophy-card.locked {
-  opacity: 0.72;
+  background-color: #F1F5F9;
+  border: 1px dashed #CBD5E1;
+  color: #94A3B8;
+  filter: grayscale(100%);
+  opacity: 0.65;
 }
 
-.trophy-icon {
-  font-size: 1.5rem;
-  margin-bottom: 0.65rem;
+.trophy-card.unlocked {
+  background: linear-gradient(180deg, #FFFFFF 0%, #ECFDF5 100%);
+  border: 2px solid #10B981;
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.16);
+  transform: translateY(-2px);
 }
 
 .badge-locked {
@@ -77,7 +77,7 @@ h1, h2, h3, .navbar-brand {
 }
 
 .badge-unlocked {
-  background-color: var(--alpine-mid);
+  background-color: #059669;
   color: #FFFFFF;
   font-size: 0.72rem;
   font-weight: 700;
