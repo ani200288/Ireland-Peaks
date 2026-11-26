@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PeakLog Ireland | 408 Arderins Tracker &amp; Summit Weather</title>
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-light">
+
+  <!-- Top Navigation Bar -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm">
+    <div class="container">
+      <a class="navbar-brand fw-bold" href="index.html">PeakLog Ireland</a>
+      <span id="climbedCounter" class="badge bg-success fs-6">0 / 408 Arderins Climbed</span>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="py-4">
+    <div class="container">
+
+      <!-- Smart "When Are You Free?" Hike Recommender -->
+      <div class="card p-4 shadow-sm mb-4 border-primary">
+        <h1 class="h4 fw-bold mb-2">Find Your Next Unclimbed Peak</h1>
+        <p class="small text-muted mb-3">
+          Pick a free date (within the next 7 days) and an optional county—we will check live Open-Meteo forecasts for unclimbed Arderins and suggest the clearest summit.
+        </p>
+        <div class="row g-2 align-items-end">
+          <div class="col-12 col-md-4">
+            <label for="freeDateInput" class="form-label small fw-semibold">Date You Are Free</label>
+            <input type="date" id="freeDateInput" class="form-control">
+          </div>
+          <div class="col-12 col-md-4">
+            <label for="recommenderCounty" class="form-label small fw-semibold">Preferred County (Optional)</label>
+            <select id="recommenderCounty" class="form-select">
+              <option value="all">Anywhere in Ireland</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-4">
+            <button type="button" id="recommendBtn" class="btn btn-primary w-100 fw-semibold">Suggest Best Unclimbed Peak</button>
+          </div>
+        </div>
+        <div id="recommenderResult" class="alert alert-info mt-3 mb-0 d-none"></div>
+      </div>
+
+      <!-- Trophy Cabinet -->
+      <div class="card p-4 shadow-sm mb-4">
+        <h2 class="h5 fw-bold mb-3">Trophy Cabinet</h2>
+        <div class="row g-3" id="trophyCabinet"></div>
+      </div>
+
+      <!-- Search & Filter Bar -->
+      <div class="card p-3 shadow-sm mb-4">
+        <div class="row g-2">
+          <div class="col-12 col-md-5">
+            <input type="text" id="peakSearch" class="form-control" placeholder="Search peak name (e.g. Lugnaquilla, Djouce)...">
+          </div>
+          <div class="col-6 col-md-4">
+            <select id="countyFilter" class="form-select">
+              <option value="all">All Counties</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <select id="statusFilter" class="form-select">
+              <option value="all">All Peaks (408)</option>
+              <option value="unclimbed">Unclimbed Only</option>
+              <option value="climbed">Climbed Only</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Peaks Grid -->
+      <div class="row g-3" id="peaksGrid"></div>
+
+      <!-- Pagination Controls -->
+      <div class="d-flex justify-content-between align-items-center mt-4">
+        <button type="button" id="prevPageBtn" class="btn btn-outline-dark btn-sm">Previous</button>
+        <span id="pageIndicator" class="small fw-semibold">Page 1</span>
+        <button type="button" id="nextPageBtn" class="btn btn-outline-dark btn-sm">Next</button>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="js/bootstrap.bundle.min.js"></script>
+  <script src="js/peaks-app.js"></script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+/* ==========================================================================
+   PeakLog Ireland - Custom Stylesheet
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap');
+
+:root {
+  --moss-dark: #1B4332;
+  --moss-primary: #2D6A4F;
+  --moss-light: #D8F3DC;
+  --slate-bg: #F3F6F4;
+  --amber-gold: #F59E0B;
+  --text-main: #1F2937;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--slate-bg);
+  color: var(--text-main);
+  padding-top: 64px;
+}
+
+h1, h2, h3, .navbar-brand {
+  font-family: 'Space Grotesk', sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.navbar-peaks {
+  background-color: var(--moss-dark);
+}
+
+.badge-gold {
+  background-color: var(--amber-gold);
+  color: #111827;
+  font-weight: 800;
+}
+
+.badge-moss {
+  background-color: var(--moss-light);
+  color: var(--moss-dark);
+  font-weight: 700;
+}
+
+.hero-peaks {
+  background: linear-gradient(135deg, var(--moss-dark) 0%, var(--moss-primary) 100%);
+}
+
+.stats-panel {
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.card-peaks {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 0.85rem;
+  box-shadow: 0 4px 14px rgba(27, 67, 50, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  height: 100%;
+}
+
+.card-peaks:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(27, 67, 50, 0.12);
+}
+
+.card-climbed {
+  border: 2px solid var(--moss-primary);
+  background-color: #F7FCF9;
+}
+
+.btn-moss {
+  background-color: var(--moss-primary);
+  border-color: var(--moss-primary);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.btn-moss:hover {
+  background-color: var(--moss-dark);
+  border-color: var(--moss-dark);
+  color: #FFFFFF;
+}
+
+.recommendation-box {
+  background-color: var(--moss-light);
+  border-left: 4px solid var(--moss-dark);
+}
+
+/* Trophy Cards */
+.trophy-card {
+  border-radius: 0.75rem;
+  padding: 1rem;
+  border: 1px solid #CBD5E1;
+  background-color: #FFFFFF;
+  opacity: 0.55;
+  filter: grayscale(100%);
+  transition: all 0.25s ease;
+  height: 100%;
+}
+
+.trophy-card.unlocked {
+  opacity: 1;
+  filter: none;
+  border: 2px solid var(--amber-gold);
+  background: linear-gradient(180deg, #FFFBEB 0%, #FFFFFF 100%);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.18);
+}
+
+.footer-peaks {
+  background-color: var(--moss-dark);
+}
