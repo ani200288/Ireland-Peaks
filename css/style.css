@@ -171,3 +171,46 @@ h1, h2, h3, .navbar-brand {
   border-color: var(--alpine-green);
   color: #FFFFFF;
 }
+
+/* Alpine map markers */
+.peak-marker-icon {
+  background: transparent;
+  border: 0;
+}
+
+.peak-marker {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(17, 24, 39, 0.3);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.peak-marker:hover {
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(17, 24, 39, 0.35);
+}
+
+.peak-marker svg {
+  width: 21px;
+  height: 21px;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+}
+
+.peak-marker--climbed {
+  background: #2d6a4f;
+  color: #ffffff;
+}
+
+.peak-marker--unclimbed {
+  background: #f4f6f5;
+  color: #1b4332;
+  border-color: #2d6a4f;
+}
