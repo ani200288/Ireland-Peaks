@@ -29,17 +29,23 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
-            <div class="btn-group w-100 mb-3" role="group" aria-label="Account action">
-              <button type="button" class="btn btn-outline-success" id="showSignIn">Sign in</button>
-              <button type="button" class="btn btn-outline-success" id="showRegister">Create account</button>
+            <div id="signedInPanel" class="d-none">
+              <p class="mb-3">Signed in as <strong id="accountEmailLabel"></strong></p>
+              <button type="button" id="accountSignOut" class="btn btn-outline-danger w-100">Sign out</button>
             </div>
-            <form id="accountForm">
-              <label for="accountEmail" class="form-label">Email</label>
-              <input id="accountEmail" class="form-control mb-3" type="email" autocomplete="email" required>
-              <label for="accountPassword" class="form-label">Password</label>
-              <input id="accountPassword" class="form-control mb-3" type="password" autocomplete="current-password" minlength="6" required>
-              <button id="accountSubmit" class="btn btn-alpine w-100" type="submit">Sign in</button>
-            </form>
+            <div id="signedOutPanel">
+              <div class="btn-group w-100 mb-3" role="group" aria-label="Account action">
+                <button type="button" class="btn btn-outline-success" id="showSignIn">Sign in</button>
+                <button type="button" class="btn btn-outline-success" id="showRegister">Create account</button>
+              </div>
+              <form id="accountForm">
+                <label for="accountEmail" class="form-label">Email</label>
+                <input id="accountEmail" class="form-control mb-3" type="email" autocomplete="email" required>
+                <label for="accountPassword" class="form-label">Password</label>
+                <input id="accountPassword" class="form-control mb-3" type="password" autocomplete="current-password" minlength="6" required>
+                <button id="accountSubmit" class="btn btn-alpine w-100" type="submit">Sign in</button>
+              </form>
+            </div>
             <p id="accountFeedback" class="small mt-3 mb-0" role="status" aria-live="polite"></p>
           </div>
         </div>
@@ -82,49 +88,25 @@
   function renderAccount() {
     if (!controls) return;
     controls.replaceChildren();
-    if (currentUser) {
-      const row = document.createElement('div');
-      row.className = 'd-flex align-items-center gap-2';
-      const email = document.createElement('span');
-      email.className = 'small text-white';
-      email.textContent = currentUser.email || 'Signed in';
-      const signOut = document.createElement('button');
-      signOut.type = 'button';
-      signOut.className = 'btn btn-sm btn-outline-light';
-      signOut.textContent = 'Sign out';
-      signOut.addEventListener('click', async () => {
-        signOut.disabled = true;
-        const { error } = await client.auth.signOut();
-        if (error) {
-          signOut.disabled = false;
-          setMode('signin');
-          showMessage(error.message, true);
-          authModal?.show();
-          return;
-        }
-        originalRemoveItem.call(localStorage, STORAGE_KEY);
-        sessionStorage.removeItem(HYDRATED_USER_KEY);
-        location.reload();
-      });
-      row.append(email, signOut);
-      controls.appendChild(row);
-      return;
-    }
-
-    const group = document.createElement('div');
-    group.className = 'btn-group btn-group-sm';
-    const signIn = document.createElement('button');
-    signIn.type = 'button';
-    signIn.className = 'btn btn-outline-light';
-    signIn.textContent = 'Sign in';
-    signIn.addEventListener('click', () => { setMode('signin'); authModal?.show(); });
-    const register = document.createElement('button');
-    register.type = 'button';
-    register.className = 'btn btn-warning';
-    register.textContent = 'Register';
-    register.addEventListener('click', () => { setMode('signup'); authModal?.show(); });
-    group.append(signIn, register);
-    controls.appendChild(group);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-warning shadow';
+    button.textContent = currentUser ? 'My account' : 'Sign in / Register';
+    button.setAttribute('aria-label', currentUser ? 'Open account settings' : 'Sign in or register');
+    button.addEventListener('click', () => {
+      const signedInPanel = document.getElementById('signedInPanel');
+      const signedOutPanel = document.getElementById('signedOutPanel');
+      signedInPanel.classList.toggle('d-none', !currentUser);
+      signedOutPanel.classList.toggle('d-none', Boolean(currentUser));
+      if (currentUser) {
+        document.getElementById('accountModalTitle').textContent = 'Your PeakLog account';
+        document.getElementById('accountEmailLabel').textContent = currentUser.email || 'Signed in';
+      } else {
+        setMode('signin');
+      }
+      authModal?.show();
+    });
+    controls.appendChild(button);
   }
 
   function getConfirmationRedirect() {
@@ -159,6 +141,20 @@
     } finally {
       submitButton.disabled = false;
     }
+  });
+
+  document.getElementById('accountSignOut').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    const { error } = await client.auth.signOut();
+    if (error) {
+      showMessage(error.message, true);
+      button.disabled = false;
+      return;
+    }
+    originalRemoveItem.call(localStorage, STORAGE_KEY);
+    sessionStorage.removeItem(HYDRATED_USER_KEY);
+    location.reload();
   });
 
   async function fetchClimbs() {
@@ -201,6 +197,12 @@
   };
 
   async function initialize() {
+    if (controls) {
+      // Keep account actions out of the navigation bar; provide one compact fixed account button instead.
+      controls.className = 'peaklog-account-control';
+      controls.style.cssText = 'position:fixed;right:1rem;bottom:1rem;z-index:1030;';
+      document.body.appendChild(controls);
+    }
     renderAccount();
     if (!window.supabase || typeof window.supabase.createClient !== 'function' || !modalApi) {
       console.error('Supabase or Bootstrap failed to load.');
