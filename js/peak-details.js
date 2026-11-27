@@ -272,19 +272,138 @@
     return error ? null : data.signedUrl;
   }
 
+  const PROVINCE_THEMES = {
+    munster: {
+      label: 'Munster',
+      className: 'placeholder-munster',
+      // Sharp jagged ridges (MacGillycuddy's Reeks)
+      svg: `<svg viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M0 120 L0 85 L65 42 L115 72 L185 20 L250 68 L315 35 L400 78 L400 120 Z" fill="rgba(255,255,255,0.10)"/>
+              <path d="M0 120 L0 95 L90 58 L155 88 L225 45 L300 82 L365 55 L400 85 L400 120 Z" fill="rgba(255,255,255,0.16)"/>
+            </svg>`
+    },
+    leinster: {
+      label: 'Leinster',
+      className: 'placeholder-leinster',
+      // Rolling granite domes (Wicklow Mountains)
+      svg: `<svg viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M0 120 L0 80 Q95 35 190 70 T400 60 L400 120 Z" fill="rgba(255,255,255,0.10)"/>
+              <path d="M0 120 L0 92 Q130 52 240 82 T400 75 L400 120 Z" fill="rgba(255,255,255,0.16)"/>
+            </svg>`
+    },
+    connacht: {
+      label: 'Connacht',
+      className: 'placeholder-connacht',
+      // Conical quartzite peaks (Croagh Patrick / Twelve Bens)
+      svg: `<svg viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M0 120 L0 90 L95 60 L195 22 L295 65 L400 48 L400 120 Z" fill="rgba(255,255,255,0.10)"/>
+              <path d="M0 120 L0 98 L120 72 L225 44 L330 82 L400 68 L400 120 Z" fill="rgba(255,255,255,0.16)"/>
+            </svg>`
+    },
+    ulster: {
+      label: 'Ulster',
+      className: 'placeholder-ulster',
+      // Dramatic coastal cliffs & granite tors (Mournes / Slieve League)
+      svg: `<svg viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M0 120 L0 45 L85 52 L145 85 L235 32 L290 38 L350 75 L400 65 L400 120 Z" fill="rgba(255,255,255,0.10)"/>
+              <path d="M0 120 L0 72 L110 68 L185 92 L275 50 L345 82 L400 78 L400 120 Z" fill="rgba(255,255,255,0.16)"/>
+            </svg>`
+    }
+  };
+
+  function detectProvince(regionText = '') {
+    const lower = regionText.toLowerCase();
+    if (lower.includes('ulster')) return PROVINCE_THEMES.ulster;
+    if (lower.includes('leinster')) return PROVINCE_THEMES.leinster;
+    if (lower.includes('connacht') || lower.includes('connaught')) return PROVINCE_THEMES.connacht;
+    return PROVINCE_THEMES.munster; // Default fallback
+  }
+
+  function createPlaceholderBanner(regionText) {
+    const theme = detectProvince(regionText);
+    const banner = node('div', `peak-card-placeholder ${theme.className}`);
+    banner.innerHTML = `
+      <span class="peak-placeholder-tag">${theme.label}</span>
+      <span class="peak-placeholder-hint">+ Add summit photo</span>
+      ${theme.svg}
+    `;
+    return banner;
+  }
+
   async function updateCardCover(peak, path) {
     const card = [...grid.querySelectorAll('.peak-card')].find(item => item.querySelector('h3')?.textContent?.trim() === peak.name);
     if (!card) return;
     card.querySelector('.peak-card-cover')?.remove();
-    if (!path) return;
+    card.querySelector('.peak-card-placeholder')?.remove();
+
+    const regionText = card.querySelector('.pill-region')?.textContent || '';
+
+    if (!path) {
+      card.prepend(createPlaceholderBanner(regionText));
+      return;
+    }
+
     const url = await signedPhotoUrl(path);
-    if (!url || !card.isConnected) return;
+    if (!card.isConnected) return;
+
+    if (!url) {
+      card.prepend(createPlaceholderBanner(regionText));
+      return;
+    }
+
     const image = node('img', 'peak-card-cover');
     image.src = url;
     image.alt = `${peak.name} personal photo cover`;
     image.loading = 'lazy';
     card.prepend(image);
   }
+
+  function attachCardInteractions() {
+    grid.querySelectorAll('.peak-card').forEach(card => {
+      if (card.dataset.detailsBound) return;
+      card.dataset.detailsBound = 'true';
+      const heading = card.querySelector('h3');
+      if (!heading) return;
+
+      const regionText = card.querySelector('.pill-region')?.textContent.trim() || 'Ireland';
+
+      // Render default province placeholder immediately if no cover exists yet
+      if (!card.querySelector('.peak-card-cover') && !card.querySelector('.peak-card-placeholder')) {
+        card.prepend(createPlaceholderBanner(regionText));
+      }
+
+      const name = heading.textContent.trim();
+      const peak = {
+        name,
+        height: Number.parseInt(card.querySelector('.peak-elevation')?.textContent, 10),
+        county: regionText,
+        difficulty: card.querySelector('.text-muted.fw-semibold')?.textContent.replace('Arderin List • ', '') || 'Peak',
+        id: Number(card.querySelector('[id^="weather-"]')?.id.replace('weather-', '')) || 0,
+        lat: undefined,
+        lon: undefined
+      };
+
+      card.classList.add('peak-card-clickable');
+      card.tabIndex = 0;
+      card.setAttribute('aria-label', `Open ${name} peak details, photos and notes`);
+      const detailsButton = node('button', 'btn btn-outline-secondary w-100 mt-2 peak-details-open', 'Peak details, photos & notes');
+      detailsButton.type = 'button';
+      detailsButton.addEventListener('click', () => openPeakDetails(peak));
+      card.appendChild(detailsButton);
+
+      card.addEventListener('click', event => {
+        if (event.target.closest('button, a, input, select, textarea, label')) return;
+        openPeakDetails(peak);
+      });
+      card.addEventListener('keydown', event => {
+        if ((event.key === 'Enter' || event.key === ' ') && event.target === card) {
+          event.preventDefault();
+          openPeakDetails(peak);
+        }
+      });
+    });
+  }
+
 
   async function hydrateCardCovers() {
     if (!currentUser() || !window.peakLogSupabase) return;
@@ -299,33 +418,7 @@
     }
   }
 
-  function attachCardInteractions() {
-    grid.querySelectorAll('.peak-card').forEach(card => {
-      if (card.dataset.detailsBound) return;
-      card.dataset.detailsBound = 'true';
-      const heading = card.querySelector('h3');
-      if (!heading) return;
-      const name = heading.textContent.trim();
-      const peak = { name, height: Number.parseInt(card.querySelector('.peak-elevation')?.textContent, 10), county: card.querySelector('.pill-region')?.textContent.trim() || 'Ireland', difficulty: card.querySelector('.text-muted.fw-semibold')?.textContent.replace('Arderin List • ', '') || 'Peak', id: Number(card.querySelector('[id^="weather-"]')?.id.replace('weather-', '')) || 0, lat: undefined, lon: undefined };
-      card.classList.add('peak-card-clickable');
-      card.tabIndex = 0;
-      card.setAttribute('aria-label', `Open ${name} peak details, photos and notes`);
-      const detailsButton = node('button', 'btn btn-outline-secondary w-100 mt-2 peak-details-open', 'Peak details, photos & notes');
-      detailsButton.type = 'button';
-      detailsButton.addEventListener('click', () => openPeakDetails(peak));
-      card.appendChild(detailsButton);
-      card.addEventListener('click', event => {
-        if (event.target.closest('button, a, input, select, textarea, label')) return;
-        openPeakDetails(peak);
-      });
-      card.addEventListener('keydown', event => {
-        if ((event.key === 'Enter' || event.key === ' ') && event.target === card) {
-          event.preventDefault();
-          openPeakDetails(peak);
-        }
-      });
-    });
-  }
+
 
   buildModal();
   const observer = new MutationObserver(attachCardInteractions);
