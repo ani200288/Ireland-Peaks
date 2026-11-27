@@ -13,6 +13,7 @@
 
   let detailsModal;
   let climbDateModal;
+  let achievementModal;
   let activePeak = null;
   let savedPaths = [];
   let selectedFiles = [];
@@ -21,7 +22,7 @@
   let dates = readLocalDates();
   let coversByPeak = new Map();
   let signedUrlCache = new Map();
-  let decorationQueued = false;
+  let pendingAchievements = [];
 
   function element(tag, className, text) {
     const result = document.createElement(tag);
@@ -115,7 +116,7 @@
     document.body.appendChild(shell);
     climbDateModal = new bootstrap.Modal(shell);
     shell.querySelector('#climbDateInput').max = todayLocal();
-    shell.querySelector('#climbDateForm').addEventListener('submit', async event => {
+    shell.querySelector('#climbDateForm').addEventListener('submit', event => {
       event.preventDefault();
       if (!activePeak) return;
       const name = activePeak.name;
@@ -125,10 +126,25 @@
       writeLocalDates();
       window.toggleClimbed?.(name);
       void saveDateToCloud(name, value);
-      decorateCards();
+      void decorateCards();
       climbDateModal.hide();
     });
-    shell.addEventListener('hidden.bs.modal', () => { activePeak = null; });
+    shell.addEventListener('hidden.bs.modal', () => {
+      activePeak = null;
+      // Let Bootstrap finish hiding the date dialog before showing the award.
+      window.setTimeout(showPendingAchievements, 180);
+    });
+  }
+
+  function buildAchievementModal() {
+    const shell = element('div', 'modal fade achievement-unlock-modal');
+    shell.id = 'achievementUnlockModal';
+    shell.tabIndex = -1;
+    shell.setAttribute('aria-labelledby', 'achievementUnlockTitle');
+    shell.setAttribute('aria-hidden', 'true');
+    shell.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content text-center"><div class="modal-body p-4 p-md-5"><div class="achievement-unlock-confetti" aria-hidden="true">✦　✧　✦</div><div class="achievement-unlock-icon" id="achievementUnlockIcon" aria-hidden="true">🏆</div><p class="text-uppercase small fw-bold text-success mb-2">Achievement unlocked</p><h2 class="h3 fw-bold" id="achievementUnlockTitle"></h2><div id="achievementUnlockList" class="achievement-unlock-list mt-3"></div><button type="button" class="btn btn-alpine mt-4" data-bs-dismiss="modal">Brilliant!</button></div></div></div>`;
+    document.body.appendChild(shell);
+    achievementModal = new bootstrap.Modal(shell);
   }
 
   function buildAllTrailsUrl(peak) {
@@ -365,6 +381,64 @@
     void decorateCards();
   }
 
+  function unlockedTrophies() {
+    return new Map([...document.querySelectorAll('#trophyCabinet .trophy-card.unlocked')].map(card => {
+      const title = card.querySelector('h3')?.textContent?.trim();
+      return [title, {
+        title,
+        description: card.querySelector('p')?.textContent?.trim() || '',
+        icon: card.querySelector('.trophy-icon')?.textContent?.trim() || '🏆'
+      }];
+    }).filter(([title]) => title));
+  }
+
+  function seenAchievementTitles() {
+    const key = `peakLogSeenAchievements:${currentUser()?.id || 'guest'}`;
+    try { return { key, values: new Set(JSON.parse(localStorage.getItem(key) || '[]')) }; }
+    catch (_) { return { key, values: new Set() }; }
+  }
+
+  function watchForAchievementUnlocks() {
+    if (typeof window.toggleClimbed !== 'function' || window.toggleClimbed.peakLogAchievementWrapped) return;
+    const originalToggle = window.toggleClimbed;
+    const wrappedToggle = function (peakName) {
+      const before = unlockedTrophies();
+      const result = originalToggle.apply(this, arguments);
+      const newlyUnlocked = [...unlockedTrophies().entries()]
+        .filter(([title]) => !before.has(title))
+        .map(([, achievement]) => achievement);
+      if (newlyUnlocked.length) {
+        const seen = seenAchievementTitles();
+        const firstUnlocks = newlyUnlocked.filter(item => !seen.values.has(item.title));
+        newlyUnlocked.forEach(item => seen.values.add(item.title));
+        localStorage.setItem(seen.key, JSON.stringify([...seen.values]));
+        if (firstUnlocks.length) {
+          window.dispatchEvent(new CustomEvent('peaklog:achievements-unlocked', { detail: { achievements: firstUnlocks } }));
+        }
+      }
+      return result;
+    };
+    wrappedToggle.peakLogAchievementWrapped = true;
+    window.toggleClimbed = wrappedToggle;
+  }
+
+  function showPendingAchievements() {
+    if (!pendingAchievements.length || !achievementModal) return;
+    const unlocked = pendingAchievements.splice(0);
+    const modal = achievementModal._element;
+    modal.querySelector('#achievementUnlockIcon').textContent = unlocked.length === 1 ? unlocked[0].icon : '🏆';
+    modal.querySelector('#achievementUnlockTitle').textContent = unlocked.length === 1 ? unlocked[0].title : `${unlocked.length} achievements unlocked!`;
+    const list = modal.querySelector('#achievementUnlockList');
+    list.replaceChildren();
+    unlocked.forEach(item => {
+      const row = element('div', 'achievement-unlock-item');
+      row.append(element('span', 'achievement-unlock-item-icon', item.icon), element('span', '', item.title));
+      if (item.description) row.appendChild(element('small', 'd-block text-muted mt-1', item.description));
+      list.appendChild(row);
+    });
+    achievementModal.show();
+  }
+
   function onGridClick(event) {
     const button = event.target.closest('.btn-mark-climbed');
     if (!button || !grid.contains(button)) return;
@@ -396,15 +470,14 @@
       const heading = card.querySelector('h3');
       if (!heading) return;
       const name = heading.textContent.trim();
-      const coordinates = window.peakCoordinatesByName?.get(name) || {};
       const peak = {
         name,
         height: Number.parseInt(card.querySelector('.peak-elevation')?.textContent, 10),
         county: card.querySelector('.pill-region')?.textContent.trim() || 'Ireland',
         difficulty: card.querySelector('.text-muted.fw-semibold')?.textContent.replace('Arderin List • ', '') || 'Peak',
         id: Number(card.querySelector('[id^="weather-"]')?.id.replace('weather-', '')) || 0,
-        lat: coordinates.lat,
-        lon: coordinates.lon
+        lat: undefined,
+        lon: undefined
       };
       card.classList.add('peak-card-clickable');
       card.tabIndex = 0;
@@ -428,16 +501,20 @@
 
   buildDetailsModal();
   buildClimbDateModal();
+  buildAchievementModal();
   grid.addEventListener('click', onGridClick, true);
+  window.addEventListener('peaklog:achievements-unlocked', event => {
+    pendingAchievements.push(...(event.detail?.achievements || []));
+  });
   const observer = new MutationObserver(() => {
     attachCardInteractions();
-    if (decorationQueued) return;
-    decorationQueued = true;
-    requestAnimationFrame(() => { decorationQueued = false; void decorateCards(); });
+    void decorateCards();
   });
   observer.observe(grid, { childList: true, subtree: true });
   attachCardInteractions();
+  watchForAchievementUnlocks();
   window.addEventListener('peaklog:auth-ready', () => {
+    watchForAchievementUnlocks();
     void loadCloudDates();
   });
   if (currentUser()) void loadCloudDates();
