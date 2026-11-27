@@ -14,14 +14,19 @@
       const actions = card.querySelector('.weather-strip')?.parentElement;
       if (!peakName || !actions) return;
 
-      const query = [peakName, range, 'Ireland'].filter(Boolean).join(' ');
+      const query = [peakName, range, 'Ireland', 'hiking trail']
+        .filter(Boolean)
+        .join(' ');
+      const allTrailsUrl = new URL('https://www.alltrails.com/explore');
+      allTrailsUrl.searchParams.set('query', query);
+
       const link = document.createElement('a');
       link.className = 'btn btn-outline-success btn-sm w-100 mt-2 alltrails-search-link';
-      link.href = `https://www.alltrails.com/search?query=${encodeURIComponent(query)}`;
+      link.href = allTrailsUrl.toString();
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       link.textContent = 'Find routes on AllTrails ↗';
-      link.setAttribute('aria-label', `Search AllTrails routes for ${peakName}`);
+      link.setAttribute('aria-label', `Search AllTrails routes for ${peakName} in Ireland`);
       actions.appendChild(link);
     });
   }
