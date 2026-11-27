@@ -14,6 +14,13 @@
   let client;
   let authModal;
 
+  function announceAuthReady() {
+    window.peakLogUser = currentUser;
+    window.dispatchEvent(new CustomEvent('peaklog:auth-ready', {
+      detail: { user: currentUser }
+    }));
+  }
+
   function createAuthModal() {
     const modal = document.createElement('div');
     modal.className = 'modal fade';
@@ -77,7 +84,7 @@
     document.getElementById('accountModalTitle').textContent = registering ? 'Create your PeakLog account' : 'Sign in to PeakLog';
     submitButton.textContent = registering ? 'Register' : 'Sign in';
     passwordInput.autocomplete = registering ? 'new-password' : 'current-password';
-    showMessage(registering ? 'Your climbs will sync across your devices.' : 'Sign in to access your saved climbs.');
+    showMessage(registering ? 'Your climbs and private peak memories stay in your account.' : 'Sign in to access your saved climbs and private peak memories.');
     document.getElementById('showSignIn').classList.toggle('active', !registering);
     document.getElementById('showRegister').classList.toggle('active', registering);
   }
@@ -110,7 +117,6 @@
   }
 
   function getConfirmationRedirect() {
-    // Relative to the currently served project directory (including GitHub Pages project sites).
     return new URL('./index.html', window.location.href).href;
   }
 
@@ -198,7 +204,6 @@
 
   async function initialize() {
     if (controls) {
-      // Keep account actions out of the navigation bar; provide one compact fixed account button instead.
       controls.className = 'peaklog-account-control';
       controls.style.cssText = 'position:fixed;right:1rem;bottom:1rem;z-index:1030;';
       document.body.appendChild(controls);
@@ -206,6 +211,7 @@
     renderAccount();
     if (!window.supabase || typeof window.supabase.createClient !== 'function' || !modalApi) {
       console.error('Supabase or Bootstrap failed to load.');
+      announceAuthReady();
       return;
     }
     client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
@@ -214,6 +220,7 @@
       const { data, error } = await client.auth.getSession();
       if (error) throw error;
       currentUser = data.session?.user || null;
+      announceAuthReady();
       renderAccount();
       if (!currentUser) return;
 
@@ -226,6 +233,7 @@
       }
     } catch (error) {
       console.error('PeakLog authentication/progress initialization failed:', error);
+      announceAuthReady();
       setMode('signin');
       showMessage(error.message || 'Could not load your account. Please try again.', true);
     }
