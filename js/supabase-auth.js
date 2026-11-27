@@ -5,105 +5,157 @@
   const SUPABASE_URL = 'https://ewcpzgopglgkhjgopfck.supabase.co';
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_qjYjbMAYdzw4SJA-o0Clxg_ILMtPelb';
   const STORAGE_KEY = 'irelandClimbedNames';
-  const supabaseApi = window.supabase;
+  const HYDRATED_USER_KEY = 'peakLogHydratedUser';
   const controls = document.getElementById('accountControls');
   const originalSetItem = Storage.prototype.setItem;
   const originalRemoveItem = Storage.prototype.removeItem;
   let currentUser = null;
   let syncedNames = new Set();
-  let appReady = false;
+  let client;
+  let authModal;
 
-  if (!supabaseApi || typeof supabaseApi.createClient !== 'function') {
-    showMessage('Could not load Supabase. Progress remains stored on this device.');
-    return;
+  function createAuthModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'accountModal';
+    modal.tabIndex = -1;
+    modal.setAttribute('aria-labelledby', 'accountModalTitle');
+    modal.setAttribute('aria-hidden', 'true');
+    modal.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title h5" id="accountModalTitle">PeakLog account</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div id="signedInPanel" class="d-none">
+              <p class="mb-3">Signed in as <strong id="accountEmailLabel"></strong></p>
+              <button type="button" id="accountSignOut" class="btn btn-outline-danger w-100">Sign out</button>
+            </div>
+            <div id="signedOutPanel">
+              <div class="btn-group w-100 mb-3" role="group" aria-label="Account action">
+                <button type="button" class="btn btn-outline-success" id="showSignIn">Sign in</button>
+                <button type="button" class="btn btn-outline-success" id="showRegister">Create account</button>
+              </div>
+              <form id="accountForm">
+                <label for="accountEmail" class="form-label">Email</label>
+                <input id="accountEmail" class="form-control mb-3" type="email" autocomplete="email" required>
+                <label for="accountPassword" class="form-label">Password</label>
+                <input id="accountPassword" class="form-control mb-3" type="password" autocomplete="current-password" minlength="6" required>
+                <button id="accountSubmit" class="btn btn-alpine w-100" type="submit">Sign in</button>
+              </form>
+            </div>
+            <p id="accountFeedback" class="small mt-3 mb-0" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    return modal;
   }
 
-  const client = supabaseApi.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-  window.peakLogSupabase = client;
+  const modalElement = createAuthModal();
+  const modalApi = window.bootstrap?.Modal;
+  if (modalApi) authModal = new modalApi(modalElement);
+
+  let authMode = 'signin';
+  const form = document.getElementById('accountForm');
+  const feedback = document.getElementById('accountFeedback');
+  const submitButton = document.getElementById('accountSubmit');
+  const emailInput = document.getElementById('accountEmail');
+  const passwordInput = document.getElementById('accountPassword');
 
   function showMessage(message, isError = false) {
-    let status = document.getElementById('accountStatus');
-    if (!status && controls) {
-      status = document.createElement('span');
-      status.id = 'accountStatus';
-      status.className = 'small d-block text-white-50 mt-1';
-      controls.appendChild(status);
-    }
-    if (status) {
-      status.textContent = message;
-      status.classList.toggle('text-warning', isError);
-    }
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.className = `small mt-3 mb-0 ${isError ? 'text-danger' : 'text-success'}`;
   }
+
+  function setMode(mode) {
+    authMode = mode;
+    const registering = mode === 'signup';
+    document.getElementById('accountModalTitle').textContent = registering ? 'Create your PeakLog account' : 'Sign in to PeakLog';
+    submitButton.textContent = registering ? 'Register' : 'Sign in';
+    passwordInput.autocomplete = registering ? 'new-password' : 'current-password';
+    showMessage(registering ? 'Your climbs will sync across your devices.' : 'Sign in to access your saved climbs.');
+    document.getElementById('showSignIn').classList.toggle('active', !registering);
+    document.getElementById('showRegister').classList.toggle('active', registering);
+  }
+
+  document.getElementById('showSignIn').addEventListener('click', () => setMode('signin'));
+  document.getElementById('showRegister').addEventListener('click', () => setMode('signup'));
 
   function renderAccount() {
     if (!controls) return;
     controls.replaceChildren();
-    if (currentUser) {
-      const row = document.createElement('div');
-      row.className = 'd-flex align-items-center gap-2';
-      const email = document.createElement('span');
-      email.className = 'small text-white';
-      email.textContent = currentUser.email || 'Signed in';
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'btn btn-sm btn-outline-light';
-      button.textContent = 'Sign out';
-      button.addEventListener('click', async () => {
-        button.disabled = true;
-        const { error } = await client.auth.signOut();
-        if (error) {
-          showMessage(error.message, true);
-          button.disabled = false;
-          return;
-        }
-        originalRemoveItem.call(localStorage, STORAGE_KEY);
-        sessionStorage.removeItem('peakLogHydratedUser');
-        location.reload();
-      });
-      row.append(email, button);
-      controls.appendChild(row);
-      showMessage('Your climbs sync to your account.');
-      return;
-    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-warning shadow';
+    button.textContent = currentUser ? 'My account' : 'Sign in / Register';
+    button.setAttribute('aria-label', currentUser ? 'Open account settings' : 'Sign in or register');
+    button.addEventListener('click', () => {
+      const signedInPanel = document.getElementById('signedInPanel');
+      const signedOutPanel = document.getElementById('signedOutPanel');
+      signedInPanel.classList.toggle('d-none', !currentUser);
+      signedOutPanel.classList.toggle('d-none', Boolean(currentUser));
+      if (currentUser) {
+        document.getElementById('accountModalTitle').textContent = 'Your PeakLog account';
+        document.getElementById('accountEmailLabel').textContent = currentUser.email || 'Signed in';
+      } else {
+        setMode('signin');
+      }
+      authModal?.show();
+    });
+    controls.appendChild(button);
+  }
 
-    const form = document.createElement('form');
-    form.className = 'd-flex flex-wrap align-items-center gap-1';
-    form.setAttribute('aria-label', 'Sign in or create a PeakLog account');
-    const email = document.createElement('input');
-    email.type = 'email'; email.required = true; email.autocomplete = 'email';
-    email.placeholder = 'Email'; email.setAttribute('aria-label', 'Email');
-    email.className = 'form-control form-control-sm'; email.style.width = '150px';
-    const password = document.createElement('input');
-    password.type = 'password'; password.required = true; password.minLength = 6;
-    password.autocomplete = 'current-password'; password.placeholder = 'Password';
-    password.setAttribute('aria-label', 'Password'); password.className = 'form-control form-control-sm'; password.style.width = '130px';
-    const signIn = document.createElement('button');
-    signIn.type = 'submit'; signIn.className = 'btn btn-sm btn-outline-light'; signIn.textContent = 'Sign in';
-    const signUp = document.createElement('button');
-    signUp.type = 'button'; signUp.className = 'btn btn-sm btn-warning'; signUp.textContent = 'Create account';
+  function getConfirmationRedirect() {
+    // Relative to the currently served project directory (including GitHub Pages project sites).
+    return new URL('./index.html', window.location.href).href;
+  }
 
-    async function authenticate(action) {
-      if (!form.reportValidity()) return;
-      signIn.disabled = signUp.disabled = true;
-      showMessage(action === 'signup' ? 'Creating account…' : 'Signing in…');
-      const result = action === 'signup'
-        ? await client.auth.signUp({ email: email.value.trim(), password: password.value })
-        : await client.auth.signInWithPassword({ email: email.value.trim(), password: password.value });
-      signIn.disabled = signUp.disabled = false;
-      if (result.error) {
-        showMessage(result.error.message, true);
-      } else if (action === 'signup' && !result.data.session) {
-        showMessage('Check your email to confirm your account, then sign in.');
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!client) return;
+    submitButton.disabled = true;
+    showMessage(authMode === 'signup' ? 'Creating your account…' : 'Signing in…');
+    try {
+      const result = authMode === 'signup'
+        ? await client.auth.signUp({
+          email: emailInput.value.trim(),
+          password: passwordInput.value,
+          options: { emailRedirectTo: getConfirmationRedirect() }
+        })
+        : await client.auth.signInWithPassword({
+          email: emailInput.value.trim(),
+          password: passwordInput.value
+        });
+      if (result.error) throw result.error;
+      if (authMode === 'signup' && !result.data.session) {
+        showMessage('Registration received. Check your email and confirm your address, then sign in.');
       } else {
         location.reload();
       }
+    } catch (error) {
+      showMessage(error.message || 'Authentication failed. Please try again.', true);
+    } finally {
+      submitButton.disabled = false;
     }
-    form.addEventListener('submit', event => { event.preventDefault(); authenticate('signin'); });
-    signUp.addEventListener('click', () => authenticate('signup'));
-    form.append(email, password, signIn, signUp);
-    controls.appendChild(form);
-    showMessage('Sign in to sync your climbs across devices.');
-  }
+  });
+
+  document.getElementById('accountSignOut').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    const { error } = await client.auth.signOut();
+    if (error) {
+      showMessage(error.message, true);
+      button.disabled = false;
+      return;
+    }
+    originalRemoveItem.call(localStorage, STORAGE_KEY);
+    sessionStorage.removeItem(HYDRATED_USER_KEY);
+    location.reload();
+  });
 
   async function fetchClimbs() {
     const { data, error } = await client.from('climbed_peaks')
@@ -118,8 +170,6 @@
     const added = [...nextNames].filter(name => !syncedNames.has(name));
     if (!removed.length && !added.length) return;
 
-    // Update local cache first; each database operation is scoped to the signed-in user by RLS.
-    syncedNames = new Set(nextNames);
     try {
       if (removed.length) {
         const { error } = await client.from('climbed_peaks').delete()
@@ -131,9 +181,9 @@
         const { error } = await client.from('climbed_peaks').upsert(rows, { onConflict: 'user_id,peak_name' });
         if (error) throw error;
       }
-      showMessage('Progress synced.');
+      syncedNames = new Set(nextNames);
     } catch (error) {
-      showMessage(`Could not sync progress: ${error.message}`, true);
+      showMessage(error.message || 'Could not sync progress.', true);
       console.error('PeakLog progress sync failed:', error);
     }
   }
@@ -141,37 +191,43 @@
   Storage.prototype.setItem = function (key, value) {
     originalSetItem.call(this, key, value);
     if (this === localStorage && key === STORAGE_KEY && currentUser) {
-      try { persistChanges(new Set(JSON.parse(value))); }
-      catch (error) { showMessage('Could not read the updated progress.', true); }
+      try { void persistChanges(new Set(JSON.parse(value))); }
+      catch (error) { console.error('Could not read updated peak progress:', error); }
     }
   };
 
   async function initialize() {
+    if (controls) {
+      // Keep account actions out of the navigation bar; provide one compact fixed account button instead.
+      controls.className = 'peaklog-account-control';
+      controls.style.cssText = 'position:fixed;right:1rem;bottom:1rem;z-index:1030;';
+      document.body.appendChild(controls);
+    }
     renderAccount();
-    const { data, error } = await client.auth.getSession();
-    if (error) {
-      showMessage(`Authentication error: ${error.message}`, true);
+    if (!window.supabase || typeof window.supabase.createClient !== 'function' || !modalApi) {
+      console.error('Supabase or Bootstrap failed to load.');
       return;
     }
-    currentUser = data.session?.user || null;
-    renderAccount();
-    if (!currentUser) return;
-
+    client = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+    window.peakLogSupabase = client;
     try {
+      const { data, error } = await client.auth.getSession();
+      if (error) throw error;
+      currentUser = data.session?.user || null;
+      renderAccount();
+      if (!currentUser) return;
+
       const climbs = await fetchClimbs();
       syncedNames = new Set(climbs);
       originalSetItem.call(localStorage, STORAGE_KEY, JSON.stringify([...climbs]));
-      // peaks-app reads localStorage during startup; reload once after loading the account's data.
-      if (sessionStorage.getItem('peakLogHydratedUser') !== currentUser.id) {
-        sessionStorage.setItem('peakLogHydratedUser', currentUser.id);
+      if (sessionStorage.getItem(HYDRATED_USER_KEY) !== currentUser.id) {
+        sessionStorage.setItem(HYDRATED_USER_KEY, currentUser.id);
         location.reload();
-        return;
       }
-      appReady = true;
-      showMessage('Your climbs are synced with Supabase.');
     } catch (error) {
-      showMessage(`Could not load your saved climbs: ${error.message}`, true);
-      console.error('PeakLog progress load failed:', error);
+      console.error('PeakLog authentication/progress initialization failed:', error);
+      setMode('signin');
+      showMessage(error.message || 'Could not load your account. Please try again.', true);
     }
   }
 
