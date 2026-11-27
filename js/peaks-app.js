@@ -300,7 +300,7 @@ function renderPeakCards(peaks) {
     const weatherButton = document.createElement('button');
     weatherButton.type = 'button';
     weatherButton.className = 'btn btn-alpine w-100';
-    weatherButton.textContent = '7-Day Forecast';
+    weatherButton.textContent = 'Current Forecast';
     weatherButton.addEventListener('click', () => fetchSummitWeather(peak.id, peak.lat, peak.lon));
     weatherColumn.appendChild(weatherButton);
 
