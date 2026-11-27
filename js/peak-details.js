@@ -1,66 +1,32 @@
-/* Peak detail modal, private user photos/notes, and climb-date controls. */
+/* Peak detail modal, private user photos and notes. */
 (() => {
   'use strict';
 
   const BUCKET = 'peak-photos';
   const MAX_PHOTOS = 5;
   const MAX_FILE_BYTES = 5 * 1024 * 1024;
-  const DATE_KEY = 'peakLogClimbDates';
-  const LAT_RADIUS = 0.061;
-  const LON_RADIUS = 0.14;
+  const MAX_NOTE_CHARS = 2000;
+  const LATITUDE_RADIUS = 0.061;
+  const LONGITUDE_RADIUS = 0.14;
   const grid = document.getElementById('peaksGrid');
   if (!grid) return;
 
-  let detailsModal;
-  let climbDateModal;
-  let achievementModal;
+  let modal;
   let activePeak = null;
   let savedPaths = [];
   let selectedFiles = [];
   let removedPaths = new Set();
   let recordsReady = false;
-  let dates = readLocalDates();
-  let coversByPeak = new Map();
-  let signedUrlCache = new Map();
-  let pendingAchievements = [];
 
-  function element(tag, className, text) {
-    const result = document.createElement(tag);
-    if (className) result.className = className;
-    if (text !== undefined) result.textContent = text;
-    return result;
+  function node(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
   }
 
-  function todayLocal() {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  }
-
-  function readLocalDates() {
-    try {
-      const value = JSON.parse(localStorage.getItem(DATE_KEY) || '{}');
-      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function writeLocalDates() {
-    localStorage.setItem(DATE_KEY, JSON.stringify(dates));
-  }
-
-  function formattedDate(value) {
-    if (!value) return '';
-    const parsed = new Date(`${value}T12:00:00`);
-    return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(parsed);
-  }
-
-  function currentUser() {
-    return window.peakLogUser || null;
-  }
-
-  function buildDetailsModal() {
-    const shell = element('div', 'modal fade');
+  function buildModal() {
+    const shell = node('div', 'modal fade');
     shell.id = 'peakDetailsModal';
     shell.tabIndex = -1;
     shell.setAttribute('aria-labelledby', 'peakDetailsTitle');
@@ -73,6 +39,8 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close peak details"></button>
           </div>
           <div class="modal-body">
+            <div id="peakDetailsHero" class="peak-details-hero d-none"></div>
+            <section class="peak-details-weather mb-3" aria-live="polite"><h3 class="h6 fw-bold">Weather at the summit</h3><div id="peakDetailsWeather" class="small text-muted">Loading current summit forecast…</div></section>
             <div class="d-flex flex-wrap gap-2 mb-4"><a id="peakDetailsAllTrails" class="btn btn-outline-success" target="_blank" rel="noopener noreferrer">View nearby routes on AllTrails ↗</a></div>
             <div id="peakDetailsPrivateNotice" class="alert alert-info py-2 small">Your photos and notes are private to your account.</div>
             <div id="peakDetailsSignIn" class="alert alert-warning d-none" role="status">Sign in to add and view your private photos and notes. <button type="button" class="btn btn-sm btn-warning ms-2" id="peakDetailsSignInButton">Sign in / Register</button></div>
@@ -89,9 +57,10 @@
         </div>
       </div>`;
     document.body.appendChild(shell);
-    detailsModal = new bootstrap.Modal(shell);
+    modal = new bootstrap.Modal(shell);
+
     shell.querySelector('#peakDetailsSignInButton').addEventListener('click', () => {
-      detailsModal.hide();
+      modal.hide();
       document.querySelector('#accountControls button')?.click();
     });
     shell.querySelector('#peakPhotoInput').addEventListener('change', onFilesSelected);
@@ -107,83 +76,74 @@
     });
   }
 
-  function buildClimbDateModal() {
-    const shell = element('div', 'modal fade');
-    shell.id = 'climbDateModal';
-    shell.tabIndex = -1;
-    shell.setAttribute('aria-labelledby', 'climbDateTitle');
-    shell.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form id="climbDateForm"><div class="modal-header"><h2 class="modal-title h5" id="climbDateTitle">When did you climb this peak?</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cancel"></button></div><div class="modal-body"><label for="climbDateInput" class="form-label">Climb date</label><input id="climbDateInput" class="form-control" type="date" required><p class="form-text mb-0">You can choose a past date; today is selected by default.</p></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-alpine">Save climb</button></div></form></div></div>`;
-    document.body.appendChild(shell);
-    climbDateModal = new bootstrap.Modal(shell);
-    shell.querySelector('#climbDateInput').max = todayLocal();
-    shell.querySelector('#climbDateForm').addEventListener('submit', event => {
-      event.preventDefault();
-      if (!activePeak) return;
-      const name = activePeak.name;
-      const value = shell.querySelector('#climbDateInput').value;
-      if (!value || value > todayLocal()) return;
-      dates[name] = value;
-      writeLocalDates();
-      window.toggleClimbed?.(name);
-      void saveDateToCloud(name, value);
-      void decorateCards();
-      climbDateModal.hide();
-    });
-    shell.addEventListener('hidden.bs.modal', () => {
-      activePeak = null;
-      // Let Bootstrap finish hiding the date dialog before showing the award.
-      window.setTimeout(showPendingAchievements, 180);
-    });
-  }
-
-  function buildAchievementModal() {
-    const shell = element('div', 'modal fade achievement-unlock-modal');
-    shell.id = 'achievementUnlockModal';
-    shell.tabIndex = -1;
-    shell.setAttribute('aria-labelledby', 'achievementUnlockTitle');
-    shell.setAttribute('aria-hidden', 'true');
-    shell.innerHTML = `<div class="modal-dialog modal-dialog-centered"><div class="modal-content text-center"><div class="modal-body p-4 p-md-5"><div class="achievement-unlock-confetti" aria-hidden="true">✦　✧　✦</div><div class="achievement-unlock-icon" id="achievementUnlockIcon" aria-hidden="true">🏆</div><p class="text-uppercase small fw-bold text-success mb-2">Achievement unlocked</p><h2 class="h3 fw-bold" id="achievementUnlockTitle"></h2><div id="achievementUnlockList" class="achievement-unlock-list mt-3"></div><button type="button" class="btn btn-alpine mt-4" data-bs-dismiss="modal">Brilliant!</button></div></div></div>`;
-    document.body.appendChild(shell);
-    achievementModal = new bootstrap.Modal(shell);
-  }
-
   function buildAllTrailsUrl(peak) {
     const url = new URL('https://www.alltrails.com/explore');
-    url.searchParams.set('b_br_lat', (peak.lat - LAT_RADIUS).toFixed(12));
-    url.searchParams.set('b_br_lng', (peak.lon - LON_RADIUS).toFixed(12));
-    url.searchParams.set('b_tl_lat', (peak.lat + LAT_RADIUS).toFixed(12));
-    url.searchParams.set('b_tl_lng', (peak.lon + LON_RADIUS).toFixed(12));
+    url.searchParams.set('b_br_lat', (peak.lat - LATITUDE_RADIUS).toFixed(12));
+    url.searchParams.set('b_br_lng', (peak.lon - LONGITUDE_RADIUS).toFixed(12));
+    url.searchParams.set('b_tl_lat', (peak.lat + LATITUDE_RADIUS).toFixed(12));
+    url.searchParams.set('b_tl_lng', (peak.lon + LONGITUDE_RADIUS).toFixed(12));
     return url.toString();
   }
 
   function setFeedback(message, isError = false) {
-    const feedback = detailsModal._element.querySelector('#peakDetailsFeedback');
+    const feedback = modal._element.querySelector('#peakDetailsFeedback');
     feedback.textContent = message;
     feedback.className = `small mt-3 ${isError ? 'text-danger' : 'text-success'}`;
   }
 
-  function openPeakDetails(peak) {
+  function currentUser() {
+    return window.peakLogUser || null;
+  }
+
+  async function openPeakDetails(peak) {
     activePeak = peak;
     selectedFiles = [];
     removedPaths = new Set();
     recordsReady = false;
-    const view = detailsModal._element;
-    view.querySelector('#peakDetailsTitle').textContent = peak.name;
-    view.querySelector('#peakDetailsSubtitle').textContent = `${peak.height} m · ${peak.county} · ${peak.difficulty}`;
-    view.querySelector('#peakDetailsAllTrails').href = buildAllTrailsUrl(peak);
-    view.querySelector('#peakDetailsFeedback').textContent = '';
-    view.querySelector('#peakPhotoInput').value = '';
-    view.querySelector('#peakNotesInput').value = '';
-    view.querySelector('#peakNotesCount').textContent = '0';
-    view.querySelector('#peakPhotoGallery').replaceChildren();
-    const user = currentUser();
-    view.querySelector('#peakDetailsSignIn').classList.toggle('d-none', Boolean(user));
-    view.querySelector('#peakDetailsPrivateNotice').classList.toggle('d-none', !user);
-    view.querySelector('#peakDetailsForm').classList.toggle('d-none', !user);
-    view.querySelector('#peakDetailsSave').disabled = false;
+    const element = modal._element;
+    element.querySelector('#peakDetailsTitle').textContent = peak.name;
+    element.querySelector('#peakDetailsSubtitle').textContent = `${peak.height} m · ${peak.county} · ${peak.difficulty}`;
+    element.querySelector('#peakDetailsAllTrails').href = buildAllTrailsUrl(peak);
+    element.querySelector('#peakDetailsWeather').textContent = 'Loading current summit forecast…';
+    element.querySelector('#peakDetailsFeedback').textContent = '';
+    element.querySelector('#peakPhotoInput').value = '';
+    element.querySelector('#peakNotesInput').value = '';
+    element.querySelector('#peakNotesCount').textContent = '0';
+    element.querySelector('#peakPhotoGallery').replaceChildren();
+    element.querySelector('#peakDetailsSignIn').classList.toggle('d-none', Boolean(currentUser()));
+    element.querySelector('#peakDetailsPrivateNotice').classList.toggle('d-none', !currentUser());
+    element.querySelector('#peakDetailsForm').classList.toggle('d-none', !currentUser());
+    element.querySelector('#peakDetailsSave').disabled = false;
     updatePhotoCount();
-    detailsModal.show();
-    if (user) void loadSavedDetails(peak);
+    modal.show();
+    void loadWeather(peak);
+    if (currentUser()) await loadSavedDetails(peak);
+  }
+
+  async function loadWeather(peak) {
+    const target = modal._element.querySelector('#peakDetailsWeather');
+    try {
+      const parameters = new URLSearchParams({ latitude: String(peak.lat), longitude: String(peak.lon), current: 'temperature_2m,apparent_temperature,precipitation,wind_speed_10m,weather_code', timezone: 'Europe/Dublin' });
+      const response = await fetch(`https://api.open-meteo.com/v1/forecast?${parameters}`);
+      if (!response.ok) throw new Error('Summit forecast is unavailable right now.');
+      const data = await response.json();
+      if (!data.current) throw new Error('No current forecast is available.');
+      const weather = data.current;
+      target.textContent = `${Math.round(weather.temperature_2m)}°C (feels like ${Math.round(weather.apparent_temperature)}°C) · Wind ${Math.round(weather.wind_speed_10m)} km/h · Rain ${weather.precipitation} mm · ${weatherCodeLabel(weather.weather_code)}`;
+    } catch (error) {
+      target.textContent = error.message || 'Could not load summit forecast.';
+    }
+  }
+
+  function weatherCodeLabel(code) {
+    if (code === 0) return 'Clear';
+    if ([1, 2, 3].includes(code)) return 'Partly cloudy';
+    if ([45, 48].includes(code)) return 'Fog';
+    if ([51, 53, 55, 56, 57].includes(code)) return 'Drizzle';
+    if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'Rain';
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return 'Snow';
+    if ([95, 96, 99].includes(code)) return 'Thunderstorm';
+    return 'Conditions variable';
   }
 
   async function loadSavedDetails(peak) {
@@ -195,44 +155,44 @@
       if (error) throw error;
       if (activePeak !== peak) return;
       savedPaths = Array.isArray(data?.photo_paths) ? data.photo_paths : [];
-      detailsModal._element.querySelector('#peakNotesInput').value = data?.notes || '';
-      detailsModal._element.querySelector('#peakNotesCount').textContent = String((data?.notes || '').length);
+      modal._element.querySelector('#peakNotesInput').value = data?.notes || '';
+      modal._element.querySelector('#peakNotesCount').textContent = String((data?.notes || '').length);
       recordsReady = true;
       await renderGallery();
       setFeedback('Your private peak memories are ready.');
     } catch (error) {
-      setFeedback(`Could not load peak memories: ${error.message || 'check Supabase table access and RLS permissions.'}`, true);
+      setFeedback(`Could not load peak memories: ${error.message || ''}`, true);
     }
   }
 
   async function renderGallery() {
-    const gallery = detailsModal._element.querySelector('#peakPhotoGallery');
+    const gallery = modal._element.querySelector('#peakPhotoGallery');
     gallery.replaceChildren();
     const client = window.peakLogSupabase;
-    const activePaths = savedPaths.filter(path => !removedPaths.has(path));
-    for (const [index, path] of activePaths.entries()) {
+    const paths = savedPaths.filter(path => !removedPaths.has(path));
+    for (const [index, path] of paths.entries()) {
       const { data, error } = await client.storage.from(BUCKET).createSignedUrl(path, 3600);
       if (error) throw error;
-      const item = element('div', `peak-photo-item ${index === 0 ? 'is-cover' : ''}`);
-      const image = element('img');
+      const item = node('div', `peak-photo-item ${index === 0 ? 'is-cover' : ''}`);
+      const image = node('img');
       image.src = data.signedUrl;
-      image.alt = `${activePeak.name} photo ${index + 1}`;
+      image.alt = `${activePeak.name} memory photo ${index + 1}${index === 0 ? ', card cover' : ''}`;
       item.appendChild(image);
-      if (index === 0) item.appendChild(element('span', 'peak-photo-cover-label', 'Card cover'));
-      const remove = element('button', 'btn btn-sm btn-danger peak-photo-remove', 'Remove');
+      if (index === 0) item.appendChild(node('span', 'peak-photo-cover-label', 'Card cover'));
+      const remove = node('button', 'btn btn-sm btn-danger peak-photo-remove', 'Remove');
       remove.type = 'button';
       remove.addEventListener('click', () => { removedPaths.add(path); void renderGallery(); updatePhotoCount(); });
       item.appendChild(remove);
       gallery.appendChild(item);
     }
     selectedFiles.forEach((file, index) => {
-      const item = element('div', `peak-photo-item ${activePaths.length === 0 && index === 0 ? 'is-cover' : ''}`);
-      const image = element('img');
+      const item = node('div', `peak-photo-item ${paths.length === 0 && index === 0 ? 'is-cover' : ''}`);
+      const image = node('img');
       image.src = URL.createObjectURL(file);
       image.alt = `${activePeak.name} selected photo preview`;
       item.appendChild(image);
-      if (activePaths.length === 0 && index === 0) item.appendChild(element('span', 'peak-photo-cover-label', 'Card cover'));
-      const remove = element('button', 'btn btn-sm btn-danger peak-photo-remove', 'Remove');
+      if (paths.length === 0 && index === 0) item.appendChild(node('span', 'peak-photo-cover-label', 'Card cover'));
+      const remove = node('button', 'btn btn-sm btn-danger peak-photo-remove', 'Remove');
       remove.type = 'button';
       remove.addEventListener('click', () => { selectedFiles.splice(index, 1); void renderGallery(); updatePhotoCount(); });
       item.appendChild(remove);
@@ -246,23 +206,23 @@
   }
 
   function updatePhotoCount() {
-    if (!detailsModal) return;
+    if (!modal) return;
     const count = photoTotal();
-    const input = detailsModal._element.querySelector('#peakPhotoInput');
-    detailsModal._element.querySelector('#peakPhotoCount').textContent = `(${count}/${MAX_PHOTOS})`;
+    const input = modal._element.querySelector('#peakPhotoInput');
+    modal._element.querySelector('#peakPhotoCount').textContent = `(${count}/${MAX_PHOTOS})`;
     input.disabled = !recordsReady || count >= MAX_PHOTOS;
   }
 
   function onFilesSelected(event) {
-    const files = [...event.target.files];
+    const incoming = [...event.target.files];
     event.target.value = '';
     const available = MAX_PHOTOS - photoTotal();
-    if (files.length > available) setFeedback(`You can add only ${available} more photo${available === 1 ? '' : 's'} (maximum ${MAX_PHOTOS}).`, true);
-    files.slice(0, available).forEach(file => {
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return setFeedback('Use JPG, PNG or WebP image files only.', true);
-      if (file.size > MAX_FILE_BYTES) return setFeedback(`${file.name} is over the 5 MB per-photo limit.`, true);
+    if (incoming.length > available) setFeedback(`You can add only ${available} more photo${available === 1 ? '' : 's'} (maximum ${MAX_PHOTOS}).`, true);
+    for (const file of incoming.slice(0, available)) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { setFeedback('Use JPG, PNG or WebP image files only.', true); continue; }
+      if (file.size > MAX_FILE_BYTES) { setFeedback(`${file.name} is over the 5 MB per-photo limit.`, true); continue; }
       selectedFiles.push(file);
-    });
+    }
     void renderGallery();
   }
 
@@ -271,37 +231,34 @@
     const user = currentUser();
     const client = window.peakLogSupabase;
     if (!user || !client || !activePeak || !recordsReady) return;
-    const button = detailsModal._element.querySelector('#peakDetailsSave');
-    const notes = detailsModal._element.querySelector('#peakNotesInput').value.trim();
+    const button = modal._element.querySelector('#peakDetailsSave');
+    const notes = modal._element.querySelector('#peakNotesInput').value.trim();
     button.disabled = true;
     setFeedback('Saving your private photos and notes…');
-    const uploads = [];
+    const uploadedPaths = [];
     try {
       const finalPaths = savedPaths.filter(path => !removedPaths.has(path));
       for (const file of selectedFiles) {
         const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').slice(-80);
-        const safePeakName = activePeak.name.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
-        const path = `${user.id}/${safePeakName}/${crypto.randomUUID()}-${safeName}`;
+        const path = `${user.id}/${activePeak.id}/${crypto.randomUUID()}-${safeName}`;
         const { error } = await client.storage.from(BUCKET).upload(path, file, { cacheControl: '3600', contentType: file.type, upsert: false });
         if (error) throw error;
-        uploads.push(path);
+        uploadedPaths.push(path);
         finalPaths.push(path);
       }
       if (finalPaths.length > MAX_PHOTOS) throw new Error(`Maximum ${MAX_PHOTOS} photos per peak.`);
       const { error } = await client.from('peak_memories').upsert({ user_id: user.id, peak_name: activePeak.name, notes, photo_paths: finalPaths }, { onConflict: 'user_id,peak_name' });
       if (error) throw error;
-      const oldPaths = savedPaths.filter(path => removedPaths.has(path));
-      if (oldPaths.length) await client.storage.from(BUCKET).remove(oldPaths);
+      const pathsToDelete = savedPaths.filter(path => removedPaths.has(path));
+      if (pathsToDelete.length) await client.storage.from(BUCKET).remove(pathsToDelete);
       savedPaths = finalPaths;
       selectedFiles = [];
       removedPaths = new Set();
-      coversByPeak.set(activePeak.name, finalPaths[0] || null);
-      signedUrlCache.delete(activePeak.name);
       await renderGallery();
-      void decorateCards();
+      await updateCardCover(activePeak, finalPaths[0]);
       setFeedback('Saved. Your notes and photos are private to your account.');
     } catch (error) {
-      if (uploads.length) await client.storage.from(BUCKET).remove(uploads);
+      if (uploadedPaths.length) await client.storage.from(BUCKET).remove(uploadedPaths);
       setFeedback(error.message || 'Could not save your peak memories.', true);
     } finally {
       button.disabled = false;
@@ -309,158 +266,37 @@
     }
   }
 
-  async function signedPhotoUrl(name, path) {
+  async function signedPhotoUrl(path) {
     if (!path || !window.peakLogSupabase) return null;
-    if (signedUrlCache.has(name)) return signedUrlCache.get(name);
     const { data, error } = await window.peakLogSupabase.storage.from(BUCKET).createSignedUrl(path, 3600);
-    if (error) return null;
-    signedUrlCache.set(name, data.signedUrl);
-    return data.signedUrl;
+    return error ? null : data.signedUrl;
   }
 
-  async function decorateCards() {
-    grid.querySelectorAll('.peak-card').forEach(card => {
-      const name = card.querySelector('h3')?.textContent?.trim();
-      if (!name) return;
-      card.querySelector('.climb-date-label')?.remove();
-      const isClimbed = card.querySelector('.btn-mark-climbed')?.classList.contains('climbed-active');
-      if (isClimbed && dates[name]) {
-        const label = element('p', 'small text-success fw-semibold mb-2 climb-date-label', `Climbed ${formattedDate(dates[name])}`);
-        card.querySelector('h3')?.after(label);
-      }
-      card.querySelector('.peak-card-cover')?.remove();
-      const path = coversByPeak.get(name);
-      if (!path || !currentUser()) return;
-      void signedPhotoUrl(name, path).then(url => {
-        if (!url || !card.isConnected || card.querySelector('.peak-card-cover')) return;
-        const image = element('img', 'peak-card-cover');
-        image.src = url;
-        image.alt = `${name} personal photo cover`;
-        image.loading = 'lazy';
-        card.prepend(image);
-      });
-    });
+  async function updateCardCover(peak, path) {
+    const card = [...grid.querySelectorAll('.peak-card')].find(item => item.querySelector('h3')?.textContent?.trim() === peak.name);
+    if (!card) return;
+    card.querySelector('.peak-card-cover')?.remove();
+    if (!path) return;
+    const url = await signedPhotoUrl(path);
+    if (!url || !card.isConnected) return;
+    const image = node('img', 'peak-card-cover');
+    image.src = url;
+    image.alt = `${peak.name} personal photo cover`;
+    image.loading = 'lazy';
+    card.prepend(image);
   }
 
-  async function loadUserDetails() {
+  async function hydrateCardCovers() {
     if (!currentUser() || !window.peakLogSupabase) return;
     try {
       const { data, error } = await window.peakLogSupabase.from('peak_memories').select('peak_name, photo_paths');
       if (error) throw error;
-      coversByPeak = new Map((data || []).map(row => [row.peak_name, row.photo_paths?.[0] || null]));
-      signedUrlCache.clear();
-      void decorateCards();
-    } catch (error) {
-      console.warn('Could not hydrate personal peak covers:', error.message);
-    }
-  }
-
-  async function saveDateToCloud(name, date) {
-    if (!currentUser() || !window.peakLogSupabase) return;
-    const { error } = await window.peakLogSupabase.from('climb_dates').upsert({ user_id: currentUser().id, peak_name: name, climbed_on: date }, { onConflict: 'user_id,peak_name' });
-    if (error) console.error('Could not sync climb date:', error.message);
-  }
-
-  async function removeDateFromCloud(name) {
-    if (!currentUser() || !window.peakLogSupabase) return;
-    const { error } = await window.peakLogSupabase.from('climb_dates').delete().eq('user_id', currentUser().id).eq('peak_name', name);
-    if (error) console.error('Could not remove climb date:', error.message);
-  }
-
-  async function loadCloudDates() {
-    if (!currentUser() || !window.peakLogSupabase) return;
-    const { data, error } = await window.peakLogSupabase.from('climb_dates').select('peak_name, climbed_on');
-    if (error) {
-      console.warn('Climb dates are local until the climb_dates setup SQL is run:', error.message);
-      void loadUserDetails();
-      return;
-    }
-    (data || []).forEach(row => { dates[row.peak_name] = row.climbed_on; });
-    writeLocalDates();
-    void loadUserDetails();
-    void decorateCards();
-  }
-
-  function unlockedTrophies() {
-    return new Map([...document.querySelectorAll('#trophyCabinet .trophy-card.unlocked')].map(card => {
-      const title = card.querySelector('h3')?.textContent?.trim();
-      return [title, {
-        title,
-        description: card.querySelector('p')?.textContent?.trim() || '',
-        icon: card.querySelector('.trophy-icon')?.textContent?.trim() || '🏆'
-      }];
-    }).filter(([title]) => title));
-  }
-
-  function seenAchievementTitles() {
-    const key = `peakLogSeenAchievements:${currentUser()?.id || 'guest'}`;
-    try { return { key, values: new Set(JSON.parse(localStorage.getItem(key) || '[]')) }; }
-    catch (_) { return { key, values: new Set() }; }
-  }
-
-  function watchForAchievementUnlocks() {
-    if (typeof window.toggleClimbed !== 'function' || window.toggleClimbed.peakLogAchievementWrapped) return;
-    const originalToggle = window.toggleClimbed;
-    const wrappedToggle = function (peakName) {
-      const before = unlockedTrophies();
-      const result = originalToggle.apply(this, arguments);
-      const newlyUnlocked = [...unlockedTrophies().entries()]
-        .filter(([title]) => !before.has(title))
-        .map(([, achievement]) => achievement);
-      if (newlyUnlocked.length) {
-        const seen = seenAchievementTitles();
-        const firstUnlocks = newlyUnlocked.filter(item => !seen.values.has(item.title));
-        newlyUnlocked.forEach(item => seen.values.add(item.title));
-        localStorage.setItem(seen.key, JSON.stringify([...seen.values]));
-        if (firstUnlocks.length) {
-          window.dispatchEvent(new CustomEvent('peaklog:achievements-unlocked', { detail: { achievements: firstUnlocks } }));
-        }
+      for (const row of data || []) {
+        if (row.photo_paths?.[0]) await updateCardCover({ name: row.peak_name }, row.photo_paths[0]);
       }
-      return result;
-    };
-    wrappedToggle.peakLogAchievementWrapped = true;
-    window.toggleClimbed = wrappedToggle;
-  }
-
-  function showPendingAchievements() {
-    if (!pendingAchievements.length || !achievementModal) return;
-    const unlocked = pendingAchievements.splice(0);
-    const modal = achievementModal._element;
-    modal.querySelector('#achievementUnlockIcon').textContent = unlocked.length === 1 ? unlocked[0].icon : '🏆';
-    modal.querySelector('#achievementUnlockTitle').textContent = unlocked.length === 1 ? unlocked[0].title : `${unlocked.length} achievements unlocked!`;
-    const list = modal.querySelector('#achievementUnlockList');
-    list.replaceChildren();
-    unlocked.forEach(item => {
-      const row = element('div', 'achievement-unlock-item');
-      row.append(element('span', 'achievement-unlock-item-icon', item.icon), element('span', '', item.title));
-      if (item.description) row.appendChild(element('small', 'd-block text-muted mt-1', item.description));
-      list.appendChild(row);
-    });
-    achievementModal.show();
-  }
-
-  function onGridClick(event) {
-    const button = event.target.closest('.btn-mark-climbed');
-    if (!button || !grid.contains(button)) return;
-    const card = button.closest('.peak-card');
-    const name = card?.querySelector('h3')?.textContent?.trim();
-    if (!name) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-    activePeak = { name };
-    if (button.classList.contains('climbed-active')) {
-      delete dates[name];
-      writeLocalDates();
-      window.toggleClimbed?.(name);
-      void removeDateFromCloud(name);
-      void decorateCards();
-      return;
+    } catch (error) {
+      console.warn('Could not load private peak card covers:', error.message);
     }
-    const dateInput = climbDateModal._element.querySelector('#climbDateInput');
-    dateInput.value = todayLocal();
-    dateInput.max = todayLocal();
-    climbDateModal.show();
   }
 
   function attachCardInteractions() {
@@ -470,52 +306,31 @@
       const heading = card.querySelector('h3');
       if (!heading) return;
       const name = heading.textContent.trim();
-      const peak = {
-        name,
-        height: Number.parseInt(card.querySelector('.peak-elevation')?.textContent, 10),
-        county: card.querySelector('.pill-region')?.textContent.trim() || 'Ireland',
-        difficulty: card.querySelector('.text-muted.fw-semibold')?.textContent.replace('Arderin List • ', '') || 'Peak',
-        id: Number(card.querySelector('[id^="weather-"]')?.id.replace('weather-', '')) || 0,
-        lat: undefined,
-        lon: undefined
-      };
+      const peak = { name, height: Number.parseInt(card.querySelector('.peak-elevation')?.textContent, 10), county: card.querySelector('.pill-region')?.textContent.trim() || 'Ireland', difficulty: card.querySelector('.text-muted.fw-semibold')?.textContent.replace('Arderin List • ', '') || 'Peak', id: Number(card.querySelector('[id^="weather-"]')?.id.replace('weather-', '')) || 0, lat: undefined, lon: undefined };
       card.classList.add('peak-card-clickable');
       card.tabIndex = 0;
-      card.setAttribute('aria-label', `Open ${name} details, photos and notes`);
-      const open = element('button', 'btn btn-outline-secondary w-100 mt-2 peak-details-open', 'Peak details, photos & notes');
-      open.type = 'button';
-      open.addEventListener('click', () => openPeakDetails(peak));
-      card.appendChild(open);
-      card.addEventListener('click', click => {
-        if (click.target.closest('button, a, input, select, textarea, label')) return;
+      card.setAttribute('aria-label', `Open ${name} peak details, photos and notes`);
+      const detailsButton = node('button', 'btn btn-outline-secondary w-100 mt-2 peak-details-open', 'Peak details, photos & notes');
+      detailsButton.type = 'button';
+      detailsButton.addEventListener('click', () => openPeakDetails(peak));
+      card.appendChild(detailsButton);
+      card.addEventListener('click', event => {
+        if (event.target.closest('button, a, input, select, textarea, label')) return;
         openPeakDetails(peak);
       });
-      card.addEventListener('keydown', keyEvent => {
-        if ((keyEvent.key === 'Enter' || keyEvent.key === ' ') && keyEvent.target === card) {
-          keyEvent.preventDefault();
+      card.addEventListener('keydown', event => {
+        if ((event.key === 'Enter' || event.key === ' ') && event.target === card) {
+          event.preventDefault();
           openPeakDetails(peak);
         }
       });
     });
   }
 
-  buildDetailsModal();
-  buildClimbDateModal();
-  buildAchievementModal();
-  grid.addEventListener('click', onGridClick, true);
-  window.addEventListener('peaklog:achievements-unlocked', event => {
-    pendingAchievements.push(...(event.detail?.achievements || []));
-  });
-  const observer = new MutationObserver(() => {
-    attachCardInteractions();
-    void decorateCards();
-  });
+  buildModal();
+  const observer = new MutationObserver(attachCardInteractions);
   observer.observe(grid, { childList: true, subtree: true });
   attachCardInteractions();
-  watchForAchievementUnlocks();
-  window.addEventListener('peaklog:auth-ready', () => {
-    watchForAchievementUnlocks();
-    void loadCloudDates();
-  });
-  if (currentUser()) void loadCloudDates();
+  window.addEventListener('peaklog:auth-ready', () => void hydrateCardCovers());
+  if (window.peakLogUser) void hydrateCardCovers();
 })();
