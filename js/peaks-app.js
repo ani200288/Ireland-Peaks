@@ -635,3 +635,22 @@ window.toggleClimbedFromMap = toggleClimbedFromMap;
 function toggleClimbedFromMap(peakName) {
   toggleClimbed(peakName);
 }
+
+window.syncClimbedPeaks = function (namesArray) {
+  if (Array.isArray(namesArray)) {
+    climbedNames = new Set(namesArray);
+    saveClimbedNames();
+  } else {
+    climbedNames = loadClimbedNames();
+  }
+  updateCounterAndTrophies();
+  if (document.getElementById('peaksGrid')) renderDashboard();
+  if (leafletMap) renderMapMarkers(false);
+};
+
+window.addEventListener('storage', event => {
+  if (event.key === 'irelandClimbedNames') {
+    window.syncClimbedPeaks();
+  }
+});
+
